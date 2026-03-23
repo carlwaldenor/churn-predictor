@@ -1,4 +1,4 @@
-export default function LandingPage({ onSelect }) {
+export default function LandingPage({ onSelect, onSignOut }) {
   const apps = [
     {
       id: 'churn',
@@ -44,6 +44,7 @@ export default function LandingPage({ onSelect }) {
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white border-b border-gray-200">
         <div className="max-w-4xl mx-auto px-6 py-6">
+          <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <img src="/nedladdning.png" alt="EliteProspects" className="w-12 h-12 rounded-xl" />
             <div>
@@ -54,6 +55,12 @@ export default function LandingPage({ onSelect }) {
                 Choose a tool to get started
               </p>
             </div>
+          </div>
+          {onSignOut && (
+            <button onClick={onSignOut} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
+              Sign out
+            </button>
+          )}
           </div>
         </div>
       </header>

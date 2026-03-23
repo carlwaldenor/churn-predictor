@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
+import { supabase } from './lib/supabase.js'
+import LoginPage from './components/LoginPage.jsx'
 import Upload from './components/Upload.jsx'
 import Plans from './components/Plans.jsx'
 import Forecast from './components/Forecast.jsx'
@@ -20,9 +22,16 @@ const NAV = [
 ]
 
 export default function App() {
+  const [session, setSession] = useState(undefined)
   const [tab, setTab] = useState('upload')
   const [plans, setPlans] = useState([])
   const [newPlans, setNewPlans] = useState([])
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session))
+    return () => subscription.unsubscribe()
+  }, [])
 
   const refreshPlans = useCallback(async () => {
     try {
@@ -42,6 +51,9 @@ export default function App() {
         return (!max || (d && d > max)) ? d : max
       }, null)
     : null
+
+  if (session === undefined) return null
+  if (!session) return <LoginPage />
 
   return (
     <div className="min-h-screen bg-gray-950 flex">
@@ -69,7 +81,7 @@ export default function App() {
           ))}
         </nav>
 
-        <div className="px-3 py-4 border-t border-gray-800">
+        <div className="px-3 py-4 border-t border-gray-800 space-y-2">
           <div className="flex items-center gap-2 px-3">
             <div className={`w-1.5 h-1.5 rounded-full ${actualPlans.length > 0 ? 'bg-emerald-400' : 'bg-gray-600'}`} />
             <span className="text-xs text-gray-500">
@@ -78,6 +90,13 @@ export default function App() {
                 : 'No data loaded'}
             </span>
           </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-gray-500 hover:text-white hover:bg-gray-800 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" /></svg>
+            Sign out
+          </button>
         </div>
       </aside>
 

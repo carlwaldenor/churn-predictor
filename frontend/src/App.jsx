@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
+import { supabase } from './lib/supabase.js'
+import LoginPage from './components/LoginPage.jsx'
 import LandingPage from './components/LandingPage.jsx'
 import SubscriptionForecaster from './components/SubscriptionForecaster.jsx'
 import DataFiles from './components/DataFiles.jsx'
@@ -41,6 +43,7 @@ function loadInputsFromStorage() {
 }
 
 export default function App() {
+  const [session, setSession] = useState(undefined) // undefined = loading
   const [currentApp, setCurrentApp] = useState(null) // null = landing page
   const [activeTab, setActiveTab] = useState('Data Files')
   const [csvStatus, setCsvStatus] = useState({})
@@ -49,6 +52,12 @@ export default function App() {
   const [predictionInputs, setPredictionInputs] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => setSession(session))
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => setSession(session))
+    return () => subscription.unsubscribe()
+  }, [])
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -92,8 +101,11 @@ export default function App() {
     }
   }
 
+  if (session === undefined) return null // loading
+  if (!session) return <LoginPage />
+
   if (currentApp === null) {
-    return <LandingPage onSelect={setCurrentApp} />
+    return <LandingPage onSelect={setCurrentApp} onSignOut={() => supabase.auth.signOut()} />
   }
 
   if (currentApp === 'forecaster') {
