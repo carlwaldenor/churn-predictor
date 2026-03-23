@@ -1,0 +1,34 @@
+# Node
+node_modules/
+dist/
+.vite/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+venv/
+.venv/
+*.egg
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data (keep folder, ignore CSVs)
+data/*.csv
+!data/.gitkeep
+
+# Subscription scenarios — local data dirs (persisted via Supabase in prod)
+subscription-scenarios/backend/uploads/
+subscription-scenarios/backend/scenarios/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/settings.json
+.idea/
