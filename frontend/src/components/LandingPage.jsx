@@ -14,7 +14,7 @@ export default function LandingPage({ onSelect }) {
     },
     {
       id: 'forecaster',
-      href: 'http://localhost:5174',
+      href: 'https://subscription-scenarios.vercel.app',
       name: 'EP Subscription Scenarios',
       description:
         'Model and compare scenarios by adjusting sales volume, churn rate, and pricing to see their impact on subscriber count and MRR.',
