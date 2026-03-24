@@ -330,8 +330,79 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
   const years = horizonYears(endYear)
   const monthOptions = horizonMonthOptions(endYear)
 
+  // Per-plan per-year historical averages
+  const planActualsMap = useMemo(() => {
+    const map = {}
+    actualPlans.forEach((p) => {
+      const key = planKey(p)
+      const byYear = {}
+      ;(p.monthly_data || []).forEach((r) => {
+        const yr = parseInt(r.date.slice(0, 4), 10)
+        if (!byYear[yr]) byYear[yr] = []
+        byYear[yr].push(r)
+      })
+      map[key] = {}
+      Object.entries(byYear).forEach(([yr, rows]) => {
+        const n = rows.length
+        const avgSales = Math.round(
+          rows.reduce((s, r) => s + r.new_subscriber_count + (r.reactivation_count || 0), 0) / n
+        )
+        const churnRows = rows.filter((r) => r.total_subscribers > 0)
+        const avgChurnPct = churnRows.length
+          ? (churnRows.reduce((s, r) => s + Math.abs(r.churn_count) / r.total_subscribers, 0) / churnRows.length) * 100
+          : null
+        map[key][parseInt(yr, 10)] = { avgSales, avgChurnPct }
+      })
+    })
+    return map
+  }, [actualPlans])
+
+  // Read the effective YoY for a key/year/field — uses draft value if mid-edit, else committed
+  const getEffectiveYoy = (key, year, field) => {
+    const dk = yoyDraftKey(key, year, field)
+    if (dk in drafts) {
+      const parsed = parseFloat(drafts[dk])
+      return isNaN(parsed) ? 0 : parsed / 100
+    }
+    return getYoy(key, year)[field] ?? 0
+  }
+
+  // Per-plan per-year projected values (actuals for past years, compounded for future)
+  const planProjected = useMemo(() => {
+    const result = {}
+    actualPlans.forEach((p) => {
+      const key = planKey(p)
+      const actualsForKey = planActualsMap[key] || {}
+      const actualYears = Object.keys(actualsForKey).map(Number).sort()
+      if (!actualYears.length) return
+      const baseYear = actualYears[actualYears.length - 1]
+
+      result[key] = {}
+      actualYears.forEach((yr) => { result[key][yr] = { ...actualsForKey[yr] } })
+
+      let prevSales = actualsForKey[baseYear].avgSales
+      let prevChurn = actualsForKey[baseYear].avgChurnPct
+      years.forEach((year) => {
+        if (year <= baseYear) {
+          prevSales = actualsForKey[year]?.avgSales ?? prevSales
+          prevChurn = actualsForKey[year]?.avgChurnPct ?? prevChurn
+          return
+        }
+        const salesGrowth = getEffectiveYoy(key, year, 'sales_growth')
+        const churnGrowth = getEffectiveYoy(key, year, 'churn_growth')
+        const sales = Math.round(prevSales * (1 + salesGrowth))
+        const churnPct = prevChurn != null ? prevChurn * (1 + churnGrowth) : null
+        result[key][year] = { avgSales: sales, avgChurnPct: churnPct }
+        prevSales = sales
+        prevChurn = churnPct
+      })
+    })
+    return result
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actualPlans, planActualsMap, drafts, scenario.plan_overrides, years])
+
   return (
-    <div className="w-80 shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
+    <div className="w-[30rem] shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
       <div className="px-5 py-4 border-b border-gray-100">
         <h3 className="text-sm font-semibold text-gray-800 mb-3">Scenario</h3>
         <input
@@ -392,7 +463,9 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                     <tr>
                       <th className="px-3 py-2 text-left font-medium text-gray-500">Year</th>
                       <th className="px-3 py-2 text-right font-medium text-gray-500">Sales %</th>
+                      <th className="px-2 py-2 text-right font-medium text-gray-400 text-[10px] leading-tight">Avg<br/>Sales</th>
                       <th className="px-3 py-2 text-right font-medium text-gray-500">Churn %</th>
+                      <th className="px-2 py-2 text-right font-medium text-gray-400 text-[10px] leading-tight">Avg<br/>Churn</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -413,6 +486,7 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                           <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-emerald-400 text-xs pointer-events-none">%</span>
                         </div>
                       </td>
+                      <td className="px-2 py-1.5" />
                       <td className="px-2 py-1.5">
                         <div className="relative">
                           <input
@@ -427,8 +501,11 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                           <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-emerald-400 text-xs pointer-events-none">%</span>
                         </div>
                       </td>
+                      <td className="px-2 py-1.5" />
                     </tr>
-                    {years.map((year) => (
+                    {years.map((year) => {
+                      const proj = planProjected[key]?.[year]
+                      return (
                       <tr key={year}>
                         <td className="px-3 py-1.5 text-gray-700 font-medium">{year}</td>
                         <td className="px-2 py-1.5">
@@ -445,6 +522,9 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                             <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">%</span>
                           </div>
                         </td>
+                        <td className="px-2 py-1.5 text-right text-[11px] text-gray-400 whitespace-nowrap">
+                          {proj?.avgSales != null ? proj.avgSales : '—'}
+                        </td>
                         <td className="px-2 py-1.5">
                           <div className="relative">
                             <input
@@ -459,8 +539,12 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                             <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">%</span>
                           </div>
                         </td>
+                        <td className="px-2 py-1.5 text-right text-[11px] text-gray-400 whitespace-nowrap">
+                          {proj?.avgChurnPct != null ? `${proj.avgChurnPct.toFixed(1)}%` : '—'}
+                        </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
