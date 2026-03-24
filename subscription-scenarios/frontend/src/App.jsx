@@ -100,14 +100,14 @@ export default function App() {
       <aside className={`shrink-0 bg-gray-900 border-r border-gray-800 flex flex-col transition-all duration-200 ${collapsed ? 'w-[72px]' : 'w-56'}`}>
         <div className={`border-b border-gray-800 flex flex-col ${collapsed ? 'items-center py-5 px-0' : 'px-5 py-5'}`}>
           {collapsed ? (
-            <img src="/nedladdning.png" alt="EP" className="h-7 w-auto" />
+            <img src="/nedladdning.png" alt="EP" className="h-10 w-auto" />
           ) : (
-            <>
-              <img src="/nedladdning.png" alt="EliteProspects" className="h-7 w-auto mb-2" />
+            <div className="flex items-center gap-3">
+              <img src="/nedladdning.png" alt="EliteProspects" className="h-8 w-auto shrink-0" />
               <h1 className="text-sm font-semibold text-white leading-tight">
                 Subscription<br />Scenarios
               </h1>
-            </>
+            </div>
           )}
         </div>
 
