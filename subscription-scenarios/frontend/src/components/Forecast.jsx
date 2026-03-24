@@ -436,6 +436,44 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [actualPlans, planActualsMap, drafts, scenario.plan_overrides, years])
 
+  // Per-new-plan per-year projected values, seeded from the plan's monthly schedule averages.
+  // Quarterly plans use months 4–15 as the base (months 1–3 are the grace period with no churn).
+  const newPlanProjected = useMemo(() => {
+    const result = {}
+    newPlans.forEach((np) => {
+      const key = `${np.tier}_${np.plan}`
+      const isQuarterly = (np.type || '').toLowerCase() === 'quarterly'
+      const salesSchedule = np.monthly_sales_schedule || []
+      const churnSchedule = np.churn_rate_schedule || []
+
+      const salesBase = isQuarterly ? salesSchedule.slice(3) : salesSchedule
+      const churnBase = isQuarterly ? churnSchedule.slice(3) : churnSchedule
+
+      const avgSales = salesBase.length > 0
+        ? Math.round(salesBase.reduce((s, v) => s + (parseFloat(v) || 0), 0) / salesBase.length)
+        : null
+      const nonZeroChurn = churnBase.filter((v) => parseFloat(v) > 0)
+      const avgChurnPct = nonZeroChurn.length > 0
+        ? nonZeroChurn.reduce((s, v) => s + (parseFloat(v) || 0), 0) / nonZeroChurn.length
+        : null
+
+      result[key] = {}
+      let prevSales = avgSales
+      let prevChurn = avgChurnPct
+      years.forEach((year) => {
+        const salesGrowth = getEffectiveYoy(key, year, 'sales_growth')
+        const churnGrowth = getEffectiveYoy(key, year, 'churn_growth')
+        const sales = prevSales != null ? Math.round(prevSales * (1 + salesGrowth)) : null
+        const churnPct = prevChurn != null ? prevChurn * (1 + churnGrowth) : null
+        result[key][year] = { avgSales: sales, avgChurnPct: churnPct }
+        prevSales = sales
+        prevChurn = churnPct
+      })
+    })
+    return result
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newPlans, drafts, scenario.plan_overrides, years])
+
   return (
     <div className="w-[30rem] shrink-0 bg-white border-r border-gray-200 flex flex-col overflow-y-auto">
       <div className="px-5 py-4 border-b border-gray-100">
@@ -644,8 +682,10 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                   <thead className="bg-gray-50 border-b border-gray-100">
                     <tr>
                       <th className="px-3 py-2 text-left font-medium text-gray-500">Year</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500">Sales %</th>
-                      <th className="px-3 py-2 text-right font-medium text-gray-500">Churn %</th>
+                      <th className="px-2 py-2 text-right font-medium text-gray-500">Sales %</th>
+                      <th className="px-2 py-2 text-right font-medium text-gray-400 text-[10px]">Avg Sales</th>
+                      <th className="px-2 py-2 text-right font-medium text-gray-500">Churn %</th>
+                      <th className="px-2 py-2 text-right font-medium text-gray-400 text-[10px]">Avg Churn</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -658,6 +698,7 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                           <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-emerald-400 text-xs pointer-events-none">%</span>
                         </div>
                       </td>
+                      <td />
                       <td className="px-2 py-1.5">
                         <div className="relative">
                           <input type="text" inputMode="decimal" value={getDefaultVal(key, 'churn_growth')} onChange={(e) => onDefaultChange(key, 'churn_growth', e.target.value)} onBlur={() => onDefaultBlur(key, 'churn_growth')} placeholder="—"
@@ -665,8 +706,11 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                           <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-emerald-400 text-xs pointer-events-none">%</span>
                         </div>
                       </td>
+                      <td />
                     </tr>
-                    {years.map((year) => (
+                    {years.map((year) => {
+                      const proj = newPlanProjected[key]?.[year]
+                      return (
                       <tr key={year}>
                         <td className="px-3 py-1.5 text-gray-700 font-medium">{year}</td>
                         <td className="px-2 py-1.5">
@@ -676,6 +720,9 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                             <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">%</span>
                           </div>
                         </td>
+                        <td className="px-2 py-1.5 text-right text-[11px] text-gray-400 whitespace-nowrap">
+                          {proj?.avgSales != null ? proj.avgSales : '—'}
+                        </td>
                         <td className="px-2 py-1.5">
                           <div className="relative">
                             <input type="text" inputMode="decimal" value={getYoyVal(key, year, 'churn_growth')} onChange={(e) => onYoyChange(key, year, 'churn_growth', e.target.value)} onBlur={() => onYoyBlur(key, year, 'churn_growth')} placeholder="—"
@@ -683,8 +730,12 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
                             <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none">%</span>
                           </div>
                         </td>
+                        <td className="px-2 py-1.5 text-right text-[11px] text-gray-400 whitespace-nowrap">
+                          {proj?.avgChurnPct != null ? `${proj.avgChurnPct.toFixed(1)}%` : '—'}
+                        </td>
                       </tr>
-                    ))}
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
