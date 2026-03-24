@@ -367,7 +367,10 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
     return getYoy(key, year)[field] ?? 0
   }
 
-  // Per-plan per-year projected values (actuals for past years, compounded for future)
+  // Per-plan per-year projected values.
+  // For complete years: copy actual averages directly.
+  // For the last year if it's partial (< 12 months of actuals): blend locked actuals with
+  // YoY-estimated remaining months so the display reflects the full-year projection.
   const planProjected = useMemo(() => {
     const result = {}
     actualPlans.forEach((p) => {
@@ -375,17 +378,65 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
       const actualsForKey = planActualsMap[key] || {}
       const actualYears = Object.keys(actualsForKey).map(Number).sort()
       if (!actualYears.length) return
-      const baseYear = actualYears[actualYears.length - 1]
+      const lastYear = actualYears[actualYears.length - 1]
+
+      // Detect partial year
+      const lastYearRows = (p.monthly_data || []).filter(
+        (r) => parseInt(r.date.slice(0, 4), 10) === lastYear
+      )
+      const isPartial = lastYearRows.length < 12
 
       result[key] = {}
-      actualYears.forEach((yr) => { result[key][yr] = { ...actualsForKey[yr] } })
+      // Copy all complete actual years
+      actualYears.forEach((yr) => {
+        if (yr !== lastYear || !isPartial) result[key][yr] = { ...actualsForKey[yr] }
+      })
 
-      let prevSales = actualsForKey[baseYear].avgSales
-      let prevChurn = actualsForKey[baseYear].avgChurnPct
+      let prevSales
+      let prevChurn
+
+      if (isPartial) {
+        // Prior full year averages as the YoY base
+        const priorYear = lastYear - 1
+        const priorAvgSales = actualsForKey[priorYear]?.avgSales ?? actualsForKey[lastYear].avgSales
+        const priorAvgChurnPct = actualsForKey[priorYear]?.avgChurnPct ?? actualsForKey[lastYear].avgChurnPct
+
+        const nActual = lastYearRows.length
+        const nRemaining = 12 - nActual
+        const actualSalesSum = lastYearRows.reduce(
+          (s, r) => s + r.new_subscriber_count + (r.reactivation_count || 0), 0
+        )
+        const churnRows = lastYearRows.filter((r) => r.total_subscribers > 0)
+        const actualChurnSum = churnRows.reduce(
+          (s, r) => s + (Math.abs(r.churn_count) / r.total_subscribers) * 100, 0
+        )
+
+        const salesGrowth = getEffectiveYoy(key, lastYear, 'sales_growth')
+        const churnGrowth = getEffectiveYoy(key, lastYear, 'churn_growth')
+
+        const estRemainingSales = priorAvgSales * (1 + salesGrowth)
+        const estRemainingChurnPct = priorAvgChurnPct != null
+          ? priorAvgChurnPct * (1 + churnGrowth)
+          : null
+
+        prevSales = Math.round((actualSalesSum + nRemaining * estRemainingSales) / 12)
+        prevChurn = estRemainingChurnPct != null
+          ? (actualChurnSum + nRemaining * estRemainingChurnPct) / 12
+          : (churnRows.length > 0 ? actualChurnSum / churnRows.length : null)
+
+        result[key][lastYear] = { avgSales: prevSales, avgChurnPct: prevChurn }
+      } else {
+        prevSales = actualsForKey[lastYear].avgSales
+        prevChurn = actualsForKey[lastYear].avgChurnPct
+      }
+
+      // Compound into forecast years
       years.forEach((year) => {
-        if (year <= baseYear) {
-          prevSales = actualsForKey[year]?.avgSales ?? prevSales
-          prevChurn = actualsForKey[year]?.avgChurnPct ?? prevChurn
+        if (year <= lastYear) {
+          if (!isPartial) {
+            prevSales = actualsForKey[year]?.avgSales ?? prevSales
+            prevChurn = actualsForKey[year]?.avgChurnPct ?? prevChurn
+          }
           return
         }
         const salesGrowth = getEffectiveYoy(key, year, 'sales_growth')
