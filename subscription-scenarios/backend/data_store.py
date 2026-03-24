@@ -93,3 +93,26 @@ def save_scenario(scenario: ScenarioConfig) -> ScenarioConfig:
 def delete_scenario(scenario_id: str) -> bool:
     result = _sb.table("ss_scenarios").delete().eq("id", scenario_id).execute()
     return len(result.data) > 0
+
+
+# ---------------------------------------------------------------------------
+# New plans — persisted in Supabase as a single JSON array
+# ---------------------------------------------------------------------------
+
+
+def load_new_plans() -> list:
+    """Fetch the stored new-plans JSON array from Supabase."""
+    try:
+        res = _sb.table("ss_new_plans").select("data").eq("id", "default").execute()
+        if res.data:
+            return res.data[0]["data"]
+    except Exception:
+        pass
+    return []
+
+
+def save_new_plans(plans: list) -> None:
+    """Upsert the new-plans JSON array to Supabase."""
+    _sb.table("ss_new_plans").upsert(
+        {"id": "default", "data": plans, "updated_at": datetime.now(timezone.utc).isoformat()}
+    ).execute()

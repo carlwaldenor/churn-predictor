@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 import data_store
@@ -158,3 +158,18 @@ def delete_scenario(scenario_id: str):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# New plans (forecast-only, persisted independently of scenarios)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/new-plans")
+def get_new_plans():
+    return data_store.load_new_plans()
+
+
+@app.post("/api/new-plans")
+def save_new_plans(plans: list = Body(...)):
+    data_store.save_new_plans(plans)
+    return {"ok": True}

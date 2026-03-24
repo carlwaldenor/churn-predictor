@@ -1,10 +1,20 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import axios from 'axios'
 import { supabase } from './lib/supabase.js'
 import LoginPage from './components/LoginPage.jsx'
 import Upload from './components/Upload.jsx'
 import Plans from './components/Plans.jsx'
 import Forecast from './components/Forecast.jsx'
+
+// Convert backend new_plans (churn as decimals) to display form (churn as % strings)
+function deserializeNewPlans(plans = []) {
+  return (plans || []).map((np) => ({
+    ...np,
+    churn_rate_schedule: (np.churn_rate_schedule || []).map((v) =>
+      typeof v === 'number' ? String(parseFloat((v * 100).toPrecision(8))) : v
+    ),
+  }))
+}
 
 const NAV = [
   {
@@ -26,6 +36,9 @@ export default function App() {
   const [tab, setTab] = useState('upload')
   const [plans, setPlans] = useState([])
   const [newPlans, setNewPlans] = useState([])
+  // Tracks whether the initial new-plans load from the backend has completed,
+  // so the auto-save effect doesn't fire before we have the real data.
+  const newPlansLoadedRef = useRef(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session))
@@ -40,7 +53,31 @@ export default function App() {
     } catch {}
   }, [])
 
-  useEffect(() => { refreshPlans() }, [refreshPlans])
+  const refreshNewPlans = useCallback(async () => {
+    try {
+      const { data } = await axios.get('/api/new-plans')
+      newPlansLoadedRef.current = false   // pause auto-save while we set state
+      setNewPlans(deserializeNewPlans(data))
+    } catch {}
+    finally {
+      newPlansLoadedRef.current = true    // allow auto-save from now on
+    }
+  }, [])
+
+  useEffect(() => { refreshPlans(); refreshNewPlans() }, [refreshPlans, refreshNewPlans])
+
+  // Auto-save new plans to backend whenever they change (after initial load)
+  useEffect(() => {
+    if (!newPlansLoadedRef.current) return
+    // Serialize churn back to decimals before saving (mirrors serializeScenario)
+    const payload = newPlans.map((np) => ({
+      ...np,
+      churn_rate_schedule: (np.churn_rate_schedule || []).map((v) =>
+        typeof v === 'string' ? (parseFloat(v) || 0) / 100 : v
+      ),
+    }))
+    axios.post('/api/new-plans', payload).catch(() => {})
+  }, [newPlans])
 
   const actualPlans = plans.filter((p) => p.row_type === 'actuals')
 
