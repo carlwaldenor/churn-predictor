@@ -87,29 +87,80 @@ def _forecast_plan(
     start_year, start_month = _date_to_ym(last.date)
     months: list[ForecastMonth] = []
 
+    # Partial-year adjustment: if the last actual month is not December and a YoY
+    # override exists for that year, distribute the remaining forecast months so the
+    # full-year average hits prior_year_avg * (1 + yoy) exactly.  Locked actuals are
+    # untouched; only the remaining forecast months are adjusted.
+    partial_year_sales: float | None = None
+    partial_year_churn: float | None = None
+
+    if start_month < 12:
+        yoy_partial = yoy_by_year.get(start_year)
+        prior_rows = [r for r in rows if _date_to_ym(r.date)[0] == start_year - 1]
+        n_prior = len(prior_rows)
+        if yoy_partial is not None and n_prior > 0:
+            prior_avg_sales = sum(
+                r.new_subscriber_count + r.reactivation_count for r in prior_rows
+            ) / n_prior
+            prior_churn_rows = [r for r in prior_rows if r.total_subscribers > 0]
+            prior_avg_churn = (
+                sum(abs(r.churn_count) / r.total_subscribers for r in prior_churn_rows)
+                / len(prior_churn_rows)
+                if prior_churn_rows else avg_churn_rate
+            )
+
+            target_sales = prior_avg_sales * (1 + (yoy_partial.sales_growth or 0))
+            target_churn = max(0.0, prior_avg_churn * (1 + (yoy_partial.churn_growth or 0)))
+
+            actual_year_rows = [r for r in rows if _date_to_ym(r.date)[0] == start_year]
+            n_actual = len(actual_year_rows)
+            n_remaining = 12 - n_actual
+
+            actual_sales_sum = sum(
+                r.new_subscriber_count + r.reactivation_count for r in actual_year_rows
+            )
+            actual_churn_rows = [r for r in actual_year_rows if r.total_subscribers > 0]
+            actual_churn_sum = sum(
+                abs(r.churn_count) / r.total_subscribers for r in actual_churn_rows
+            )
+
+            if n_remaining > 0:
+                partial_year_sales = max(
+                    0.0, (12 * target_sales - actual_sales_sum) / n_remaining
+                )
+                partial_year_churn = max(
+                    0.0, (12 * target_churn - actual_churn_sum) / n_remaining
+                )
+
     year, month = start_year, start_month
     for _ in range(horizon_months):
         year, month = _next_month(year, month)
         month_str = _last_day_of_month(year, month)
 
-        # Same month last year as baseline
-        prev_year_date = _last_day_of_month(year - 1, month)
-        prev_row = rows_by_date.get(prev_year_date)
-
-        if prev_row and prev_row.total_subscribers > 0:
-            base_total_sales = prev_row.new_subscriber_count + prev_row.reactivation_count
-            base_churn_rate = abs(prev_row.churn_count) / prev_row.total_subscribers
+        # Partial-year months: use the pre-computed adjusted targets
+        if year == start_year and partial_year_sales is not None:
+            base_total_sales = partial_year_sales
+            base_churn_rate = partial_year_churn
         else:
-            base_total_sales = avg_total_sales
-            base_churn_rate = avg_churn_rate
+            # Same month last year as baseline
+            prev_year_date = _last_day_of_month(year - 1, month)
+            prev_row = rows_by_date.get(prev_year_date)
 
-        # Apply YoY growth rates for this year
-        yoy = yoy_by_year.get(year)
-        if yoy:
-            if yoy.sales_growth is not None:
-                base_total_sales = base_total_sales * (1 + yoy.sales_growth)
-            if yoy.churn_growth is not None:
-                base_churn_rate = max(0.0, base_churn_rate * (1 + yoy.churn_growth))
+            if prev_row and prev_row.total_subscribers > 0:
+                base_total_sales = prev_row.new_subscriber_count + prev_row.reactivation_count
+                base_churn_rate = abs(prev_row.churn_count) / prev_row.total_subscribers
+            else:
+                base_total_sales = avg_total_sales
+                base_churn_rate = avg_churn_rate
+
+            # Apply YoY growth rates for this year (not applied to partial year —
+            # already baked into partial_year_sales / partial_year_churn above)
+            yoy = yoy_by_year.get(year)
+            if yoy:
+                if yoy.sales_growth is not None:
+                    base_total_sales = base_total_sales * (1 + yoy.sales_growth)
+                if yoy.churn_growth is not None:
+                    base_churn_rate = max(0.0, base_churn_rate * (1 + yoy.churn_growth))
 
         # Apply price changes effective this month
         if month_str in price_change_map:

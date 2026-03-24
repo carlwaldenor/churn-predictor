@@ -396,33 +396,17 @@ function ScenarioEditor({ actualPlans, scenario, onChange, newPlans, allPlanMeta
       let prevChurn
 
       if (isPartial) {
-        // Prior full year averages as the YoY base
+        // Display the pure YoY target: prior_full_year_avg × (1 + yoy)
+        // This matches the engine's goal for the partial year.
         const priorYear = lastYear - 1
         const priorAvgSales = actualsForKey[priorYear]?.avgSales ?? actualsForKey[lastYear].avgSales
         const priorAvgChurnPct = actualsForKey[priorYear]?.avgChurnPct ?? actualsForKey[lastYear].avgChurnPct
 
-        const nActual = lastYearRows.length
-        const nRemaining = 12 - nActual
-        const actualSalesSum = lastYearRows.reduce(
-          (s, r) => s + r.new_subscriber_count + (r.reactivation_count || 0), 0
-        )
-        const churnRows = lastYearRows.filter((r) => r.total_subscribers > 0)
-        const actualChurnSum = churnRows.reduce(
-          (s, r) => s + (Math.abs(r.churn_count) / r.total_subscribers) * 100, 0
-        )
-
         const salesGrowth = getEffectiveYoy(key, lastYear, 'sales_growth')
         const churnGrowth = getEffectiveYoy(key, lastYear, 'churn_growth')
 
-        const estRemainingSales = priorAvgSales * (1 + salesGrowth)
-        const estRemainingChurnPct = priorAvgChurnPct != null
-          ? priorAvgChurnPct * (1 + churnGrowth)
-          : null
-
-        prevSales = Math.round((actualSalesSum + nRemaining * estRemainingSales) / 12)
-        prevChurn = estRemainingChurnPct != null
-          ? (actualChurnSum + nRemaining * estRemainingChurnPct) / 12
-          : (churnRows.length > 0 ? actualChurnSum / churnRows.length : null)
+        prevSales = Math.round(priorAvgSales * (1 + salesGrowth))
+        prevChurn = priorAvgChurnPct != null ? priorAvgChurnPct * (1 + churnGrowth) : null
 
         result[key][lastYear] = { avgSales: prevSales, avgChurnPct: prevChurn }
       } else {
