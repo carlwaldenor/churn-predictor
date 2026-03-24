@@ -1057,6 +1057,16 @@ function BreakdownTable({ totals }) {
 // ---------------------------------------------------------------------------
 // Serialize scenario for API (strip empty/null fields)
 // ---------------------------------------------------------------------------
+// Convert backend new_plans (churn as decimals) back to display form (churn as % strings)
+function deserializeNewPlans(plans = []) {
+  return plans.map((np) => ({
+    ...np,
+    churn_rate_schedule: (np.churn_rate_schedule || []).map((v) =>
+      typeof v === 'number' ? String(parseFloat((v * 100).toPrecision(8))) : v
+    ),
+  }))
+}
+
 function serializeScenario(scenario, lastActualDate, newPlans = []) {
   const plan_overrides = {}
   for (const [key, levers] of Object.entries(scenario.plan_overrides)) {
@@ -1209,7 +1219,7 @@ export default function Forecast({ actualPlans, newPlans, onNewPlansChange }) {
       }
       // Re-attach horizon_end_year (not round-tripped through backend)
       setScenario({ ...saved, horizon_end_year: scenario.horizon_end_year ?? new Date().getFullYear() + 5 })
-      onNewPlansChange(saved.new_plans || [])
+      onNewPlansChange(deserializeNewPlans(saved.new_plans))
       const { data: listData } = await axios.get('/api/scenarios')
       setSavedScenarios(listData)
     } catch (err) {
@@ -1241,7 +1251,7 @@ export default function Forecast({ actualPlans, newPlans, onNewPlansChange }) {
             <div
               key={s.id}
               className={`group flex items-center justify-between px-4 py-2.5 cursor-pointer transition-colors ${scenario.id === s.id ? 'bg-emerald-50 text-emerald-700' : 'hover:bg-gray-50 text-gray-700'}`}
-              onClick={() => { setScenario({ ...s, horizon_end_year: s.horizon_end_year ?? new Date().getFullYear() + 5 }); onNewPlansChange(s.new_plans || []) }}
+              onClick={() => { setScenario({ ...s, horizon_end_year: s.horizon_end_year ?? new Date().getFullYear() + 5 }); onNewPlansChange(deserializeNewPlans(s.new_plans)) }}
             >
               <span className="text-sm truncate">{s.name}</span>
               <button
