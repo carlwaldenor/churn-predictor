@@ -192,6 +192,7 @@ def _build_daily_churn_series(
     annual_risk_weight: float,
     Rm: float,
     t_pivot_date: date,
+    current_date: date,
     analysis_month: str,
     reported_voluntary_churn: float,
     reported_total_churn: float,
@@ -200,22 +201,31 @@ def _build_daily_churn_series(
 ) -> list[dict]:
     """Build the per-day churn series for the analysis month.
 
-    Uses a two-pass approach so the cumulative at month-end always equals
-    total_forecasted_churn (derived from this series in run_prediction).
+    Uses two independent pivots:
 
-    CSV semantics differ on either side of T_pivot:
-      * Actual days (≤ T_pivot): churn_count = total churn (voluntary + involuntary).
-        Used as a day-shape signal, then scaled so the window sums to
-        reported_total_churn.
-      * Projected days (> T_pivot): churn_count = voluntary churn only (involuntary
-        is still in dunning). That value becomes daily_voluntary; daily_involuntary
-        comes from the model. Falls back to rate-based estimate when no CSV data
-        exists yet (ongoing month).
+      Voluntary pivot (chart_cutoff = min(current_date, month-end)):
+        Days ≤ chart_cutoff have known voluntary churn (is_actual = True).
+        Scaled from CSV shape or pool weight to sum to reported_voluntary_churn.
+        Future days use a rate-based estimate (not counted in cumulative).
+
+      Involuntary pivot (t_pivot_date = current_date − dunning_duration):
+        Days ≤ t_pivot_date: dunning has resolved → distribute
+          realized_involuntary_churn by pool-weight share (involuntary_is_actual).
+        Days > t_pivot_date: still in dunning → distribute
+          future_uncollectibles by pool-weight share (projected involuntary).
+
+    Cumulative reaches total_forecasted_churn at month-end:
+      actual voluntary days contribute daily_voluntary;
+      all days contribute daily_involuntary (realized + projected).
     """
     ay, am = map(int, analysis_month.split("-"))
     days_in_month = calendar.monthrange(ay, am)[1]
+    last_day_of_month = date(ay, am, days_in_month)
 
-    # Pool weight per day — used for voluntary split and CSV-absent fallback
+    # Voluntary churn is known for all days up to today (capped at month-end)
+    chart_cutoff = min(current_date, last_day_of_month)
+
+    # Pool weight per day
     pool_weights = [
         (monthly_pool[i] if i < len(monthly_pool) else 0.0)
         + (annual_pool[i] if i < len(annual_pool) else 0.0) * annual_risk_weight
@@ -223,7 +233,17 @@ def _build_daily_churn_series(
     ]
     total_pool_weight = sum(pool_weights)
 
-    # Voluntary rate per unit of pool weight (for projected days with no CSV data)
+    # Pending pool weight: days whose dunning window has not yet closed
+    pending_pool_weight = sum(
+        pool_weights[i]
+        for i in range(days_in_month)
+        if date(ay, am, i + 1) > t_pivot_date
+    )
+
+    # Realized involuntary churn (may be 0 when fallback is active)
+    realized_involuntary_churn = reported_total_churn - reported_voluntary_churn
+
+    # Voluntary rate per unit of pool weight (for future projected days)
     voluntary_rate = (
         reported_voluntary_churn / matured_pool_weight
         if matured_pool_weight > 0 else 0.0
@@ -237,7 +257,9 @@ def _build_daily_churn_series(
         day_num = day_idx + 1
         date_obj = date(ay, am, day_num)
         date_str = date_obj.isoformat()
-        is_actual = date_obj <= t_pivot_date
+
+        is_actual = date_obj <= chart_cutoff              # voluntary is known
+        involuntary_is_actual = date_obj <= t_pivot_date  # dunning has resolved
 
         weight_share = (
             pool_weights[day_idx] / total_pool_weight
@@ -245,56 +267,34 @@ def _build_daily_churn_series(
             else 1.0 / days_in_month
         )
 
-        if is_actual:
-            csv_val = _get_daily_csv_churn(
-                dfs.get("daily_growth_monthly"),
-                dfs.get("daily_growth_annual"),
-                date_str,
-            )
-            raw.append({
-                "date_str": date_str,
-                "is_actual": True,
-                "raw_value": csv_val,      # shape signal; scaled in pass 2
-                "pool_weight": pool_weights[day_idx],
-                "weight_share": weight_share,
-            })
-        else:
-            # churn_count for projected dates is voluntary-only in the growth CSVs
-            csv_voluntary = _get_daily_csv_churn(
-                dfs.get("daily_growth_monthly"),
-                dfs.get("daily_growth_annual"),
-                date_str,
-            )
-            # Fall back to rate-based estimate for genuinely future dates
-            projected_voluntary = (
-                csv_voluntary if csv_voluntary > 0
-                else voluntary_rate * pool_weights[day_idx]
-            )
-            # Sales volume used to weight future_uncollectibles across projected days
-            sales_vol = _get_daily_sales(
-                dfs.get("daily_growth_monthly"),
-                dfs.get("daily_growth_annual"),
-                date_str,
-            )
-            raw.append({
-                "date_str": date_str,
-                "is_actual": False,
-                "projected_voluntary": projected_voluntary,
-                "sales_vol": sales_vol,
-                "pool_weight": pool_weights[day_idx],
-                "weight_share": weight_share,
-            })
+        # CSV shape signal (used as voluntary shape for actual days)
+        csv_val = _get_daily_csv_churn(
+            dfs.get("daily_growth_monthly"),
+            dfs.get("daily_growth_annual"),
+            date_str,
+        )
+        # For projected voluntary days: use CSV if available, else rate-based
+        projected_voluntary = (
+            csv_val if (not is_actual and csv_val > 0)
+            else voluntary_rate * pool_weights[day_idx]
+        )
+
+        raw.append({
+            "date_str": date_str,
+            "is_actual": is_actual,
+            "involuntary_is_actual": involuntary_is_actual,
+            "raw_value": csv_val,               # shape signal for actual-day scaling
+            "projected_voluntary": projected_voluntary,
+            "pool_weight": pool_weights[day_idx],
+            "weight_share": weight_share,
+        })
 
     # ------------------------------------------------------------------
-    # Determine scale factor for actual days so they sum to reported_total_churn
+    # Scale factors for voluntary distribution across actual days
     # ------------------------------------------------------------------
-    actual_csv_sum = sum(r["raw_value"] for r in raw if r["is_actual"])
+    actual_csv_sum  = sum(r["raw_value"] for r in raw if r["is_actual"])
     actual_pool_sum = sum(r["pool_weight"] for r in raw if r["is_actual"])
-
-    # Weights for distributing future_uncollectibles across projected days
-    projected_sales_total = sum(r["sales_vol"] for r in raw if not r["is_actual"])
-    projected_pool_total = sum(r["pool_weight"] for r in raw if not r["is_actual"])
-    n_projected = sum(1 for r in raw if not r["is_actual"])
+    n_actual        = sum(1 for r in raw if r["is_actual"])
 
     # ------------------------------------------------------------------
     # Pass 2: compute final daily values and running cumulative
@@ -303,39 +303,37 @@ def _build_daily_churn_series(
     cumulative = 0.0
 
     for r in raw:
+        # --- Voluntary ---
         if r["is_actual"]:
             if actual_csv_sum > 0:
-                # Scale CSV shape to match reported total exactly
-                daily_total = r["raw_value"] / actual_csv_sum * reported_total_churn
+                daily_voluntary = r["raw_value"] / actual_csv_sum * reported_voluntary_churn
             elif actual_pool_sum > 0:
-                # No CSV data — spread reported_total_churn by pool weight
-                daily_total = r["pool_weight"] / actual_pool_sum * reported_total_churn
+                daily_voluntary = r["pool_weight"] / actual_pool_sum * reported_voluntary_churn
             else:
-                n_actual = sum(1 for x in raw if x["is_actual"])
-                daily_total = reported_total_churn / n_actual if n_actual else 0.0
-
-            actual_day_share = (
-                r["pool_weight"] / matured_pool_weight if matured_pool_weight > 0 else 0.0
-            )
-            daily_voluntary = min(actual_day_share * reported_voluntary_churn, daily_total)
-            daily_involuntary = daily_total - daily_voluntary
+                daily_voluntary = reported_voluntary_churn / n_actual if n_actual else 0.0
         else:
-            # Distribute future_uncollectibles by this day's share of projected sales
-            if projected_sales_total > 0:
-                weight = r["sales_vol"] / projected_sales_total
-            elif projected_pool_total > 0:
-                weight = r["pool_weight"] / projected_pool_total
-            else:
-                weight = 1.0 / n_projected if n_projected else 0.0
-            daily_involuntary = future_uncollectibles * weight
             daily_voluntary = r["projected_voluntary"]
-            daily_total = daily_involuntary + daily_voluntary
 
-        # Cumulative tracks only the model-aligned portion so it reaches
-        # exactly total_forecasted_churn at month-end:
-        #   actual days   → full daily_total (already pinned to reported_total_churn)
-        #   projected days → daily_involuntary only (sums to future_uncollectibles)
-        # Projected voluntary is shown in the bar but excluded from the running total.
+        # --- Involuntary (independent of voluntary pivot) ---
+        if r["involuntary_is_actual"]:
+            # Dunning resolved: distribute realized involuntary by pool-weight share
+            daily_involuntary = (
+                r["pool_weight"] / matured_pool_weight * realized_involuntary_churn
+                if matured_pool_weight > 0 else 0.0
+            )
+        else:
+            # Still in dunning: distribute future_uncollectibles by pool-weight share
+            daily_involuntary = (
+                r["pool_weight"] / pending_pool_weight * future_uncollectibles
+                if pending_pool_weight > 0 else 0.0
+            )
+
+        daily_total = daily_voluntary + daily_involuntary
+
+        # Cumulative reaches total_forecasted_churn at month-end:
+        #   actual voluntary days → include daily_voluntary
+        #   all days              → include daily_involuntary
+        #   projected voluntary   → excluded (not model-predicted)
         cumulative += daily_total if r["is_actual"] else daily_involuntary
 
         series.append({
@@ -345,6 +343,7 @@ def _build_daily_churn_series(
             "daily_total": round(daily_total, 2),
             "cumulative_total": round(cumulative, 2),
             "is_actual": r["is_actual"],
+            "involuntary_is_actual": r["involuntary_is_actual"],
         })
 
     return series
@@ -529,6 +528,7 @@ def run_prediction(dfs: dict, params: dict) -> dict:
         annual_risk_weight,
         Rm,
         t_pivot_date,
+        current_date,
         analysis_month,
         reported_voluntary_churn,
         reported_total_churn,

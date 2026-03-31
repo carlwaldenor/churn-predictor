@@ -80,8 +80,15 @@ const CustomLegend = () => (
 export default function ChurnChart({ series, tPivotDate }) {
   if (!series || series.length === 0) return null
 
-  // Build chartData with four stacked fields split at the pivot
-  const pivotIdx = series.findLastIndex((d) => d.is_actual)
+  // Voluntary and involuntary have independent actual/projected pivots:
+  //   is_actual           → voluntary churn is known (days up to current_date)
+  //   involuntary_is_actual → dunning has resolved (days ≤ t_pivot_date)
+  const voluntaryPivotIdx    = series.findLastIndex((d) => d.is_actual)
+  const involuntaryPivotIdx  = series.findLastIndex((d) => d.involuntary_is_actual)
+
+  // Only insert a visual bridge when the transition happens mid-month
+  const addVolBridge = voluntaryPivotIdx   >= 0 && voluntaryPivotIdx   < series.length - 1
+  const addInvBridge = involuntaryPivotIdx >= 0 && involuntaryPivotIdx < series.length - 1
 
   const chartData = series.map((d, i) => ({
     date: d.date,
@@ -90,12 +97,12 @@ export default function ChurnChart({ series, tPivotDate }) {
     daily_involuntary: d.daily_involuntary,
     daily_total: d.daily_total,
     cumulative_total: d.cumulative_total,
-    // Actual stack: non-null for actual days (+ bridge at pivot)
-    involuntary_actual: d.is_actual || i === pivotIdx ? d.daily_involuntary : null,
-    voluntary_actual: d.is_actual || i === pivotIdx ? d.daily_voluntary : null,
-    // Projected stack: non-null for projected days (+ bridge at pivot)
-    involuntary_projected: !d.is_actual || i === pivotIdx ? d.daily_involuntary : null,
-    voluntary_projected: !d.is_actual || i === pivotIdx ? d.daily_voluntary : null,
+    // Voluntary: solid for known days, faded for future estimates
+    voluntary_actual:    (d.is_actual            || (addVolBridge && i === voluntaryPivotIdx))   ? d.daily_voluntary   : null,
+    voluntary_projected: (!d.is_actual           || (addVolBridge && i === voluntaryPivotIdx))   ? d.daily_voluntary   : null,
+    // Involuntary: solid when dunning resolved, faded when still pending
+    involuntary_actual:    (d.involuntary_is_actual || (addInvBridge && i === involuntaryPivotIdx)) ? d.daily_involuntary : null,
+    involuntary_projected: (!d.involuntary_is_actual || (addInvBridge && i === involuntaryPivotIdx)) ? d.daily_involuntary : null,
   }))
 
   // X-axis ticks: day 1 and every 5th day
