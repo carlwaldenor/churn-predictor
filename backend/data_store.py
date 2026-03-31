@@ -1,5 +1,6 @@
 import io
 import os
+from datetime import datetime
 
 import pandas as pd
 from supabase import create_client
@@ -27,6 +28,30 @@ def load_csv(file_type: str) -> pd.DataFrame | None:
     if not rows:
         return None
     return pd.read_csv(io.StringIO(rows[0]["content"]))
+
+
+def save_prediction(analysis_month: str, inputs: dict, breakdown: dict) -> None:
+    """Upsert a prediction run — re-running the same month overwrites."""
+    _sb.table("cp_prediction_runs").upsert({
+        "analysis_month": analysis_month,
+        "run_at": datetime.utcnow().isoformat(),
+        "inputs": inputs,
+        "breakdown": breakdown,
+    }).execute()
+
+
+def load_predictions() -> list:
+    """Return all saved runs ordered newest-month first."""
+    try:
+        res = (
+            _sb.table("cp_prediction_runs")
+            .select("analysis_month, run_at, inputs, breakdown")
+            .order("analysis_month", desc=True)
+            .execute()
+        )
+        return res.data or []
+    except Exception:
+        return []
 
 
 def get_status() -> dict:

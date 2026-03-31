@@ -93,4 +93,20 @@ def predict(req: PredictRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Prediction failed: {exc}") from exc
 
+    # Persist run to Supabase (current_date serialised to string for JSON storage)
+    inputs_dict = {**params, "current_date": req.current_date.isoformat()}
+    try:
+        data_store.save_prediction(req.analysis_month, inputs_dict, result)
+    except Exception:
+        pass  # never let a save failure break the prediction response
+
     return {"breakdown": result}
+
+
+# ---------------------------------------------------------------------------
+# Prediction run history
+# ---------------------------------------------------------------------------
+
+@app.get("/api/prediction-runs")
+def get_prediction_runs():
+    return data_store.load_predictions()

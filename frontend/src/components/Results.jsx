@@ -121,7 +121,7 @@ function HeadlineCard({ title, value, accent }) {
   )
 }
 
-export default function Results({ prediction }) {
+export default function Results({ prediction, savedRuns = [], onLoadRun }) {
   if (!prediction) {
     return (
       <div className="text-center py-20 text-gray-400">
@@ -142,16 +142,34 @@ export default function Results({ prediction }) {
             Forecast for <span className="font-medium text-gray-700">{prediction.analysis_month}</span>
           </p>
         </div>
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ${
-            isLive
-              ? 'bg-green-100 text-green-800'
-              : 'bg-amber-100 text-amber-800'
-          }`}
-        >
-          <span className={`h-2 w-2 rounded-full ${isLive ? 'bg-green-500' : 'bg-amber-500'}`} />
-          {isLive ? 'Live Calibration' : 'Fallback (2.9%)'}
-        </span>
+        <div className="flex items-center gap-3">
+          {savedRuns.length > 1 && (
+            <select
+              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 bg-white text-gray-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              value={prediction?.analysis_month ?? ''}
+              onChange={(e) => {
+                const run = savedRuns.find(r => r.analysis_month === e.target.value)
+                if (run && onLoadRun) onLoadRun(run)
+              }}
+            >
+              {savedRuns.map(r => (
+                <option key={r.analysis_month} value={r.analysis_month}>
+                  {r.analysis_month}
+                </option>
+              ))}
+            </select>
+          )}
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ${
+              isLive
+                ? 'bg-green-100 text-green-800'
+                : 'bg-amber-100 text-amber-800'
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${isLive ? 'bg-green-500' : 'bg-amber-500'}`} />
+            {isLive ? 'Live Calibration' : 'Fallback (2.9%)'}
+          </span>
+        </div>
       </div>
 
       {/* Headline cards */}

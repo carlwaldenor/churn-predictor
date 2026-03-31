@@ -52,6 +52,7 @@ export default function App() {
   const [predictionInputs, setPredictionInputs] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [savedRuns, setSavedRuns] = useState([])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session))
@@ -69,6 +70,21 @@ export default function App() {
   useEffect(() => {
     refreshStatus()
   }, [refreshStatus])
+
+  // Load saved prediction runs once the user is authenticated
+  useEffect(() => {
+    if (!session) return
+    axios.get('/api/prediction-runs')
+      .then(({ data }) => {
+        setSavedRuns(data)
+        // Restore most-recent prediction on first load if nothing is in state
+        if (data.length > 0) {
+          setPrediction(prev => prev ?? data[0].breakdown)
+          setPredictionInputs(prev => prev ?? data[0].inputs)
+        }
+      })
+      .catch(() => {})
+  }, [session])
 
   // Persist inputs to localStorage on change
   useEffect(() => {
@@ -92,6 +108,8 @@ export default function App() {
       const { data } = await axios.post('/api/predict', payload)
       setPrediction(data.breakdown)
       setPredictionInputs({ ...inputs })
+      // Refresh the saved runs list so the new run appears in the dropdown
+      axios.get('/api/prediction-runs').then(({ data: runs }) => setSavedRuns(runs)).catch(() => {})
       setActiveTab('Results')
     } catch (err) {
       const msg = err.response?.data?.detail || err.message || 'Prediction failed'
@@ -177,7 +195,15 @@ export default function App() {
           />
         )}
         {activeTab === 'Results' && (
-          <Results prediction={prediction} inputs={predictionInputs} />
+          <Results
+            prediction={prediction}
+            inputs={predictionInputs}
+            savedRuns={savedRuns}
+            onLoadRun={(run) => {
+              setPrediction(run.breakdown)
+              setPredictionInputs(run.inputs)
+            }}
+          />
         )}
         {activeTab === 'Walkthrough' && (
           <Walkthrough prediction={prediction} inputs={predictionInputs} />
