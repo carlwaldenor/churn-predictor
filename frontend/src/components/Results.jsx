@@ -44,8 +44,12 @@ const BREAKDOWN_ROWS = [
     definition: 'Confirmed payment failures from the matured pool (Reported Total Churn − Voluntary Churn). Zero triggers the fallback failure rate.',
   },
   {
+    key: 'matured_fraction_pct', label: 'Matured Pool %', format: (v) => fmtPct(v),
+    definition: 'Share of the total weighted pool that has completed its dunning window. Live calibration requires ≥ 10 % — below this threshold the 2.9 % fallback is used to avoid noisy small-sample estimates.',
+  },
+  {
     key: 'rm', label: 'Monthly Failure Rate (Rₘ)', format: fmtRate,
-    definition: 'Calibrated failure rate per unit of monthly pool weight. Derived from Realized Involuntary Churn ÷ Matured Pool, or the 2.9 % fallback (EP historical average) when no involuntary churn is observed.',
+    definition: 'Calibrated failure rate per unit of monthly pool weight. Derived from Realized Involuntary Churn ÷ Matured Pool, or the 2.9 % fallback (EP historical average) when no involuntary churn is observed or the matured pool is < 10 %.',
   },
   {
     key: 'current_monthly_failure_rate', label: 'Current Monthly Failure Rate', format: fmtRate,

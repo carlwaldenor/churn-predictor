@@ -560,7 +560,16 @@ def run_prediction(dfs: dict, params: dict) -> dict:
     realized_involuntary_churn = reported_total_churn - reported_voluntary_churn
     denom = matured_monthly + annual_risk_weight * matured_annual
 
-    if realized_involuntary_churn <= 0 or denom <= 0:
+    # Guard: require at least 10 % of the pool to be matured before trusting
+    # live calibration. On the last day of the analysis month (e.g. March 31
+    # with 30-day dunning) only day-1 renewals are matured (~3 % of pool) —
+    # too small a sample to derive a reliable Rm. Fall back to 2.9 % until
+    # enough data has accumulated (typically ~3 days into the following month).
+    total_pool_weight = denom + pending_monthly + annual_risk_weight * pending_annual
+    matured_fraction = denom / total_pool_weight if total_pool_weight > 0 else 0.0
+    MIN_MATURED_FRACTION = 0.10
+
+    if realized_involuntary_churn <= 0 or denom <= 0 or matured_fraction < MIN_MATURED_FRACTION:
         Rm = 0.029
         calibration_mode = "fallback_2.9pct"
     else:
@@ -613,6 +622,7 @@ def run_prediction(dfs: dict, params: dict) -> dict:
         "pending_annual_pool": round(pending_annual, 2),
         # Calibration
         "realized_involuntary_churn": round(realized_involuntary_churn, 2),
+        "matured_fraction_pct": round(matured_fraction * 100, 1),
         "rm": round(Rm, 6),
         "current_monthly_failure_rate": round(current_monthly_failure_rate, 6),
         "current_annual_failure_rate": round(current_annual_failure_rate, 6),
