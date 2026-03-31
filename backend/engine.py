@@ -424,17 +424,38 @@ def _build_renewal_pool(
 # Phase 2 — Dunning Time-Shift
 # ---------------------------------------------------------------------------
 
-def _dunning_split(pool: list[float], current_date: date, dunning_duration: int) -> tuple[float, float]:
+def _dunning_split(
+    pool: list[float],
+    current_date: date,
+    dunning_duration: int,
+    analysis_month: str,
+) -> tuple[float, float]:
     """
     Returns (matured, pending) sums from pool.
     T_pivot = current_date - dunning_duration days.
-    Days at index < t_pivot_day are matured; rest are pending.
-    """
-    t_pivot_date = current_date - timedelta(days=dunning_duration)
-    t_pivot_day = t_pivot_date.day  # 1-based day of month
 
+    Three cases:
+      t_pivot >= month end  → entire pool matured (past month, all resolved)
+      t_pivot < month start → entire pool pending (future month)
+      otherwise             → split at t_pivot_day within the month
+    """
+    ay, am = map(int, analysis_month.split("-"))
+    days_in_month = calendar.monthrange(ay, am)[1]
+    month_start = date(ay, am, 1)
+    month_end   = date(ay, am, days_in_month)
+
+    t_pivot_date = current_date - timedelta(days=dunning_duration)
+
+    if t_pivot_date >= month_end:
+        return sum(pool), 0.0          # entire pool matured
+
+    if t_pivot_date < month_start:
+        return 0.0, sum(pool)          # entire pool pending
+
+    # pivot falls within the analysis month
+    t_pivot_day = t_pivot_date.day
     matured = sum(pool[d] for d in range(min(t_pivot_day, len(pool))))
-    pending = sum(pool[d] for d in range(t_pivot_day, len(pool)))
+    pending  = sum(pool[d] for d in range(t_pivot_day, len(pool)))
     return matured, pending
 
 
@@ -493,8 +514,8 @@ def run_prediction(dfs: dict, params: dict) -> dict:
     # -----------------------------------------------------------------------
     # Phase 2 — Dunning time-shift
     # -----------------------------------------------------------------------
-    matured_monthly, pending_monthly = _dunning_split(monthly_pool, current_date, dunning_duration)
-    matured_annual, pending_annual = _dunning_split(annual_pool, current_date, dunning_duration)
+    matured_monthly, pending_monthly = _dunning_split(monthly_pool, current_date, dunning_duration, analysis_month)
+    matured_annual, pending_annual = _dunning_split(annual_pool, current_date, dunning_duration, analysis_month)
 
     t_pivot_date = current_date - timedelta(days=dunning_duration)
     t_pivot_day = t_pivot_date.day
