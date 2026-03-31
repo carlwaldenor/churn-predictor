@@ -44,7 +44,7 @@ const BREAKDOWN_ROWS = [
   },
   {
     key: 'rm', label: 'Monthly Failure Rate (Rₘ)', format: fmtRate,
-    definition: 'Calibrated failure rate per unit of monthly pool weight. Derived from Realized Involuntary Churn ÷ Matured Pool, or the 2 % fallback when no involuntary churn is observed.',
+    definition: 'Calibrated failure rate per unit of monthly pool weight. Derived from Realized Involuntary Churn ÷ Matured Pool, or the 2.9 % fallback (EP historical average) when no involuntary churn is observed.',
   },
   {
     key: 'current_monthly_failure_rate', label: 'Current Monthly Failure Rate', format: fmtRate,
@@ -150,7 +150,7 @@ export default function Results({ prediction }) {
           }`}
         >
           <span className={`h-2 w-2 rounded-full ${isLive ? 'bg-green-500' : 'bg-amber-500'}`} />
-          {isLive ? 'Live Calibration' : 'Fallback (2%)'}
+          {isLive ? 'Live Calibration' : 'Fallback (2.9%)'}
         </span>
       </div>
 

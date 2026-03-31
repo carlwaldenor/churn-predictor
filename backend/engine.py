@@ -506,8 +506,8 @@ def run_prediction(dfs: dict, params: dict) -> dict:
     denom = matured_monthly + annual_risk_weight * matured_annual
 
     if realized_involuntary_churn <= 0 or denom <= 0:
-        Rm = 0.02
-        calibration_mode = "fallback_2pct"
+        Rm = 0.029
+        calibration_mode = "fallback_2.9pct"
     else:
         Rm = realized_involuntary_churn / denom
         calibration_mode = "live"
