@@ -31,8 +31,8 @@ def load_csv(file_type: str) -> pd.DataFrame | None:
 
 
 def save_prediction(analysis_month: str, inputs: dict, breakdown: dict) -> None:
-    """Upsert a prediction run — re-running the same month overwrites."""
-    _sb.table("cp_prediction_runs").upsert({
+    """Insert a new prediction run — every run is preserved for historical analysis."""
+    _sb.table("cp_prediction_runs").insert({
         "analysis_month": analysis_month,
         "run_at": datetime.utcnow().isoformat(),
         "inputs": inputs,
@@ -41,15 +41,28 @@ def save_prediction(analysis_month: str, inputs: dict, breakdown: dict) -> None:
 
 
 def load_predictions() -> list:
-    """Return all saved runs ordered newest-month first."""
+    """Return the most recent run per month, ordered newest-month first.
+
+    All runs are stored; this function deduplicates so the UI dropdown shows
+    one entry per month (the latest). The full history is queryable in Supabase.
+    """
     try:
         res = (
             _sb.table("cp_prediction_runs")
             .select("analysis_month, run_at, inputs, breakdown")
-            .order("analysis_month", desc=True)
+            .order("run_at", desc=True)   # newest run first across all months
             .execute()
         )
-        return res.data or []
+        # Keep only the most-recent run per analysis_month
+        seen: set[str] = set()
+        unique: list = []
+        for row in (res.data or []):
+            if row["analysis_month"] not in seen:
+                seen.add(row["analysis_month"])
+                unique.append(row)
+        # Re-sort by month descending for the dropdown
+        unique.sort(key=lambda r: r["analysis_month"], reverse=True)
+        return unique
     except Exception:
         return []
 
