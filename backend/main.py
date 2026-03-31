@@ -105,6 +105,26 @@ def predict(req: PredictRequest):
 
 
 # ---------------------------------------------------------------------------
+# Renewal pool history
+# ---------------------------------------------------------------------------
+
+@app.get("/api/renewal-pool-history")
+def renewal_pool_history():
+    dfs = {ft: data_store.load_csv(ft) for ft in data_store.VALID_FILE_TYPES}
+    required = ["monthly_cohorts", "annual_cohorts", "daily_growth_monthly", "daily_growth_annual"]
+    missing = [ft for ft in required if dfs.get(ft) is None]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing CSV files: {missing}. Please upload all four data files first.",
+        )
+    try:
+        return engine.build_renewal_pool_series(dfs, months_back=12, months_forward=3)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
 # Prediction run history
 # ---------------------------------------------------------------------------
 

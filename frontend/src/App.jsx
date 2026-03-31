@@ -8,8 +8,9 @@ import DataFiles from './components/DataFiles.jsx'
 import RunPrediction from './components/RunPrediction.jsx'
 import Results from './components/Results.jsx'
 import Walkthrough from './components/Walkthrough.jsx'
+import RenewalPools from './components/RenewalPools.jsx'
 
-const TABS = ['Data Files', 'Run Prediction', 'Results', 'Walkthrough']
+const TABS = ['Data Files', 'Run Prediction', 'Results', 'Renewal Pools', 'Walkthrough']
 
 // Default inputs
 const getLastMonth = () => {
@@ -208,6 +209,9 @@ export default function App() {
               setPredictionInputs(run.inputs)
             }}
           />
+        )}
+        {activeTab === 'Renewal Pools' && (
+          <RenewalPools csvStatus={csvStatus} />
         )}
         {activeTab === 'Walkthrough' && (
           <Walkthrough prediction={prediction} inputs={predictionInputs} />

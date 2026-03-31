@@ -454,6 +454,51 @@ def _build_renewal_pool(
     return pool
 
 
+def build_renewal_pool_series(
+    dfs: dict,
+    months_back: int = 12,
+    months_forward: int = 3,
+) -> list[dict]:
+    """Return total renewal pool sizes for a range of months.
+
+    Iterates from `months_back` months before today through `months_forward`
+    months after today, computing monthly and annual pool totals for each.
+    Months after the current calendar month are flagged is_future=True.
+    """
+    today = date.today()
+    current_ym = f"{today.year}-{today.month:02d}"
+
+    def month_offset(base_year: int, base_month: int, offset: int):
+        total = (base_year - 1) * 12 + (base_month - 1) + offset
+        return total // 12 + 1, total % 12 + 1
+
+    series = []
+    for offset in range(-months_back, months_forward + 1):
+        y, m = month_offset(today.year, today.month, offset)
+        analysis_month = f"{y:04d}-{m:02d}"
+
+        monthly_pool = _build_renewal_pool(
+            dfs.get("monthly_cohorts"),
+            dfs.get("daily_growth_monthly"),
+            analysis_month,
+        )
+        annual_pool = _build_renewal_pool(
+            dfs.get("annual_cohorts"),
+            dfs.get("daily_growth_annual"),
+            analysis_month,
+            annual=True,
+        )
+        series.append({
+            "month": analysis_month,
+            "monthly_pool": round(sum(monthly_pool)),
+            "annual_pool": round(sum(annual_pool)),
+            "total_pool": round(sum(monthly_pool) + sum(annual_pool)),
+            "is_future": analysis_month > current_ym,
+        })
+
+    return series
+
+
 # ---------------------------------------------------------------------------
 # Phase 2 — Dunning Time-Shift
 # ---------------------------------------------------------------------------
