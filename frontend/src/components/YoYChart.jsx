@@ -5,6 +5,7 @@ import {
   YAxis,
   Tooltip,
   Cell,
+  LabelList,
   ResponsiveContainer,
 } from 'recharts'
 
@@ -31,7 +32,7 @@ function CustomTooltip({ active, payload }) {
 export default function YoYChart({ series, analysisMonth }) {
   if (!series || series.length === 0) return null
 
-  const monthLabel = new Date(`${analysisMonth}-01`).toLocaleString('default', { month: 'long' })
+  const monthLabel = new Date(`${analysisMonth}-01`).toLocaleString('en-US', { month: 'long' })
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 mt-8 p-5">
@@ -42,8 +43,8 @@ export default function YoYChart({ series, analysisMonth }) {
         Historical actual rates vs. this month's prediction
       </p>
 
-      <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={series} margin={{ top: 8, right: 20, left: 10, bottom: 0 }}>
+      <ResponsiveContainer width="100%" height={240}>
+        <BarChart data={series} margin={{ top: 24, right: 20, left: 10, bottom: 0 }}>
           <XAxis
             dataKey="year"
             tick={{ fontSize: 12, fill: '#6b7280' }}
@@ -60,6 +61,12 @@ export default function YoYChart({ series, analysisMonth }) {
           />
           <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
           <Bar dataKey="churn_rate_pct" radius={[4, 4, 0, 0]} maxBarSize={48}>
+            <LabelList
+              dataKey="churn_rate_pct"
+              position="top"
+              formatter={(v) => `${v.toFixed(2)}%`}
+              style={{ fontSize: 11, fill: '#6b7280', fontWeight: 500 }}
+            />
             {series.map((entry) => (
               <Cell
                 key={entry.year}
