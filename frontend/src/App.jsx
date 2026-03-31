@@ -71,12 +71,16 @@ export default function App() {
     refreshStatus()
   }, [refreshStatus])
 
+  // Deduplicate saved runs — keep only the most recent entry per analysis_month
+  const dedupeRuns = (runs) =>
+    runs.filter((r, i, arr) => arr.findIndex(x => x.analysis_month === r.analysis_month) === i)
+
   // Load saved prediction runs once the user is authenticated
   useEffect(() => {
     if (!session) return
     axios.get('/api/prediction-runs')
       .then(({ data }) => {
-        setSavedRuns(data)
+        setSavedRuns(dedupeRuns(data))
         // Restore most-recent prediction on first load if nothing is in state
         if (data.length > 0) {
           setPrediction(prev => prev ?? data[0].breakdown)
@@ -109,7 +113,7 @@ export default function App() {
       setPrediction(data.breakdown)
       setPredictionInputs({ ...inputs })
       // Refresh the saved runs list so the new run appears in the dropdown
-      axios.get('/api/prediction-runs').then(({ data: runs }) => setSavedRuns(runs)).catch(() => {})
+      axios.get('/api/prediction-runs').then(({ data: runs }) => setSavedRuns(dedupeRuns(runs))).catch(() => {})
       setActiveTab('Results')
     } catch (err) {
       const msg = err.response?.data?.detail || err.message || 'Prediction failed'
