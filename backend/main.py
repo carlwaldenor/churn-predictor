@@ -70,7 +70,8 @@ class PredictRequest(BaseModel):
 def predict(req: PredictRequest):
     dfs = {ft: data_store.load_csv(ft) for ft in data_store.VALID_FILE_TYPES}
 
-    missing = [ft for ft, df in dfs.items() if df is None]
+    required = ["monthly_cohorts", "annual_cohorts", "daily_growth_monthly", "daily_growth_annual"]
+    missing = [ft for ft in required if dfs.get(ft) is None]
     if missing:
         raise HTTPException(
             status_code=400,

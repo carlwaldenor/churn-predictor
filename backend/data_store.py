@@ -12,6 +12,7 @@ VALID_FILE_TYPES = [
     "annual_cohorts",
     "daily_growth_monthly",
     "daily_growth_annual",
+    "historical_churn",   # optional — enables year-over-year comparison chart
 ]
 
 

@@ -22,6 +22,11 @@ const FILE_TYPES = [
     label: 'Daily Growth — Annual',
     description: 'Columns: date (YYYY-MM-DD), new_subscriber_count, reactivation_count',
   },
+  {
+    key: 'historical_churn',
+    label: 'Historical Churn (optional)',
+    description: 'ChartMogul monthly churn export. Columns: date, customer_churn_rate. Enables the year-over-year comparison chart on the Results tab.',
+  },
 ]
 
 function UploadBox({ fileType, label, description, status, onUploadComplete }) {

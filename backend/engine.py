@@ -163,6 +163,40 @@ def _get_daily_sales(
     return total
 
 
+def _get_yoy_comparison(
+    df: pd.DataFrame,
+    analysis_month: str,
+    predicted_rate: float,
+) -> list[dict]:
+    """Return same-calendar-month churn rates for every year in the historical CSV.
+
+    The current analysis year is always overwritten with the model's predicted rate
+    so the bar always reflects the latest prediction rather than the raw CSV value.
+    """
+    ay, am = map(int, analysis_month.split("-"))
+    date_col = _find_col(df, ["date"])
+    rate_col = _find_col(df, ["customer_churn_rate", "churn_rate"])
+    if date_col is None or rate_col is None:
+        return []
+    df = df.copy()
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    rows: dict[int, dict] = {}
+    for _, row in df.iterrows():
+        d = row[date_col]
+        if pd.isna(d) or d.month != am:
+            continue
+        rate = float(pd.to_numeric(row[rate_col], errors="coerce") or 0)
+        if rate > 0:
+            rows[d.year] = {
+                "year": int(d.year),
+                "churn_rate_pct": round(rate, 2),
+                "is_predicted": False,
+            }
+    # Always show current year as the model prediction
+    rows[ay] = {"year": ay, "churn_rate_pct": round(predicted_rate, 4), "is_predicted": True}
+    return sorted(rows.values(), key=lambda x: x["year"])
+
+
 def _get_daily_csv_churn(
     growth_monthly: Optional[pd.DataFrame],
     growth_annual: Optional[pd.DataFrame],
@@ -591,6 +625,10 @@ def run_prediction(dfs: dict, params: dict) -> dict:
         "final_closing_balance": round(final_closing_balance, 2),
         # Daily churn time-series
         "daily_churn_series": daily_churn_series,
+        # Year-over-year comparison (empty list when historical_churn CSV not uploaded)
+        "yoy_comparison": _get_yoy_comparison(
+            dfs["historical_churn"], analysis_month, churn_rate_pct
+        ) if dfs.get("historical_churn") is not None else [],
         # Echo back inputs for walkthrough
         "analysis_month": analysis_month,
         "current_date": current_date.isoformat(),

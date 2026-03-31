@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import ChurnChart from './ChurnChart'
+import YoYChart from './YoYChart'
 
 const fmt = (val, decimals = 0) => {
   if (val === null || val === undefined) return '—'
@@ -195,6 +196,12 @@ export default function Results({ prediction, savedRuns = [], onLoadRun }) {
       <ChurnChart
         series={prediction.daily_churn_series}
         tPivotDate={prediction.t_pivot_date}
+      />
+
+      {/* Year-over-year comparison (shown only when historical_churn CSV is uploaded) */}
+      <YoYChart
+        series={prediction.yoy_comparison}
+        analysisMonth={prediction.analysis_month}
       />
 
       {/* Detailed breakdown table */}
