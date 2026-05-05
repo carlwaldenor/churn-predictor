@@ -87,18 +87,22 @@ export default function ChurnChart({ series, tPivotDate }) {
 
   const span = series.length - 1 || 1
 
-  // % along the x-axis where the gradient switches (0.5 = midpoint between days)
+  // % along the x-axis where the gradient switches.
+  // Use the exact pivot index (not +0.5) so the switch aligns with the
+  // reference line, which Recharts also positions at the data-point centre.
+  // Recharts Area has a default fillOpacity < 1, so we set fillOpacity={1}
+  // on the Area elements and let the gradient stopOpacity control fading.
   const invPct = involuntaryPivotIdx < 0
     ? 0    // nothing matured — all projected
     : involuntaryPivotIdx >= series.length - 1
     ? 100  // everything matured — all actual
-    : ((involuntaryPivotIdx + 0.5) / span) * 100
+    : (involuntaryPivotIdx / span) * 100
 
   const volPct = voluntaryPivotIdx < 0
     ? 0
     : voluntaryPivotIdx >= series.length - 1
     ? 100
-    : ((voluntaryPivotIdx + 0.5) / span) * 100
+    : (voluntaryPivotIdx / span) * 100
 
   const chartData = series.map((d) => ({
     date: d.date,
@@ -166,6 +170,7 @@ export default function ChurnChart({ series, tPivotDate }) {
               stackId="stack"
               stroke="none"
               fill="url(#volFill)"
+              fillOpacity={1}
               dot={false}
               isAnimationActive={false}
               legendType="none"
@@ -177,6 +182,7 @@ export default function ChurnChart({ series, tPivotDate }) {
               stackId="stack"
               stroke="none"
               fill="url(#invFill)"
+              fillOpacity={1}
               dot={false}
               isAnimationActive={false}
               legendType="none"
