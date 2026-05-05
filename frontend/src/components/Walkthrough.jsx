@@ -130,7 +130,7 @@ export default function Walkthrough({ prediction, inputs }) {
               </p>
             </>
           )}
-          {p.rm_live == null && (
+          {p.rm_live === null && (
             <p className="mt-2 text-gray-500 text-xs italic">
               No confirmed failures in the matured pool yet — Rₘ_live is not computable.
             </p>
