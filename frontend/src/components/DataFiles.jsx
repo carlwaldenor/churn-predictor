@@ -27,6 +27,11 @@ const FILE_TYPES = [
     label: 'Historical Churn (optional)',
     description: 'ChartMogul monthly churn export. Columns: date, customer_churn_rate. Enables the year-over-year comparison chart on the Results tab.',
   },
+  {
+    key: 'payment_failures',
+    label: 'Payment Failures (optional)',
+    description: 'Monthly Stripe payment failure rates. Columns: month (YYYY-MM), total_renewals, total_payment_failures. Enables a rolling 12-month fallback Rm instead of the static default.',
+  },
 ]
 
 function UploadBox({ fileType, label, description, status, onUploadComplete }) {

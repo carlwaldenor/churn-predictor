@@ -13,6 +13,7 @@ VALID_FILE_TYPES = [
     "daily_growth_monthly",
     "daily_growth_annual",
     "historical_churn",   # optional — enables year-over-year comparison chart
+    "payment_failures",   # optional — enables rolling-average fallback Rm
 ]
 
 

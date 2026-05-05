@@ -539,6 +539,50 @@ def _dunning_split(
 
 
 # ---------------------------------------------------------------------------
+# Rolling-average fallback Rm
+# ---------------------------------------------------------------------------
+
+DEFAULT_FALLBACK_Rm = 0.019  # used when no payment_failures CSV is uploaded
+
+def _compute_fallback_rm(df: pd.DataFrame, analysis_month: str, window: int = 12) -> float:
+    """
+    Compute a weighted rolling-average Rm from the historical payment-failures CSV.
+
+    Uses the `window` most recent complete months strictly before `analysis_month`
+    (months in/after the analysis month are excluded — their dunning windows may
+    still be open).  Weighted by renewal volume so larger months count more.
+
+    Expected columns: month (YYYY-MM), total_renewals, total_payment_failures.
+    Falls back to DEFAULT_FALLBACK_Rm if the data is missing or malformed.
+    """
+    try:
+        month_col    = _find_col(df, ["month"])
+        renewals_col = _find_col(df, ["total_renewals", "renewals"])
+        failures_col = _find_col(df, ["total_payment_failures", "payment_failures", "failures"])
+        if any(c is None for c in [month_col, renewals_col, failures_col]):
+            return DEFAULT_FALLBACK_Rm
+
+        df = df.copy()
+        df[month_col] = pd.to_datetime(df[month_col].astype(str) + "-01", errors="coerce")
+        cutoff = pd.Timestamp(date(*map(int, analysis_month.split("-")), 1))
+
+        # Only complete months before the analysis month
+        df = df[df[month_col] < cutoff].copy()
+        df[renewals_col] = pd.to_numeric(df[renewals_col], errors="coerce")
+        df[failures_col] = pd.to_numeric(df[failures_col], errors="coerce")
+        df = df.dropna(subset=[renewals_col, failures_col])
+        df = df.sort_values(month_col, ascending=False).head(window)
+
+        total_renewals = df[renewals_col].sum()
+        total_failures = df[failures_col].sum()
+        if total_renewals <= 0:
+            return DEFAULT_FALLBACK_Rm
+        return float(total_failures / total_renewals)
+    except Exception:
+        return DEFAULT_FALLBACK_Rm
+
+
+# ---------------------------------------------------------------------------
 # Main prediction entry point
 # ---------------------------------------------------------------------------
 
@@ -619,13 +663,18 @@ def run_prediction(dfs: dict, params: dict) -> dict:
     #
     # Symmetric in both directions: a noisy low early Rm is pulled back up toward
     # the prior just as a noisy high one is pulled down — both equally uncertain.
-    FALLBACK_Rm = 0.029
+    pf_df = dfs.get("payment_failures")
+    FALLBACK_Rm = (
+        _compute_fallback_rm(pf_df, analysis_month)
+        if pf_df is not None
+        else DEFAULT_FALLBACK_Rm
+    )
     total_pool_weight = denom + pending_monthly + annual_risk_weight * pending_annual
     matured_fraction = denom / total_pool_weight if total_pool_weight > 0 else 0.0
 
     if realized_involuntary_churn <= 0 or denom <= 0:
         Rm = FALLBACK_Rm
-        calibration_mode = "fallback_2.9pct"
+        calibration_mode = f"fallback_{round(FALLBACK_Rm * 100, 2)}pct"
     else:
         Rm_live = realized_involuntary_churn / denom
         credibility = matured_fraction  # 0.0–1.0
@@ -686,6 +735,7 @@ def run_prediction(dfs: dict, params: dict) -> dict:
         "current_monthly_failure_rate": round(current_monthly_failure_rate, 6),
         "current_annual_failure_rate": round(current_annual_failure_rate, 6),
         "calibration_mode": calibration_mode,
+        "fallback_rm_pct": round(FALLBACK_Rm * 100, 2),
         # Forecast
         "future_uncollectibles": round(future_uncollectibles, 2),
         "total_sales": round(total_sales, 2),

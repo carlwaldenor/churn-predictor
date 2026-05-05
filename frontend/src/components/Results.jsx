@@ -49,7 +49,7 @@ const BREAKDOWN_ROWS = [
   },
   {
     key: 'rm', label: 'Monthly Failure Rate (Rₘ)', format: fmtRate,
-    definition: 'Calibrated failure rate per unit of monthly pool weight. Derived from Realized Involuntary Churn ÷ Matured Pool, or the 2.9 % fallback (EP historical average) when no involuntary churn is observed or the matured pool is < 10 %.',
+    definition: 'Calibrated failure rate per unit of monthly pool weight. Derived from Realized Involuntary Churn ÷ Matured Pool when sufficient data is available, otherwise a rolling 12-month average from historical payment data (or a static default if no payment history file is uploaded).',
   },
   {
     key: 'current_monthly_failure_rate', label: 'Current Monthly Failure Rate', format: fmtRate,
@@ -179,7 +179,7 @@ export default function Results({ prediction, savedRuns = [], onLoadRun }) {
             }`} />
             {isLive    ? 'Live Calibration'
            : isBlended ? `Blended (${prediction.matured_fraction_pct}% matured)`
-           :             'Fallback (2.9%)'}
+           :             `Fallback (${prediction.fallback_rm_pct ?? 1.9}%)`}
           </span>
         </div>
       </div>
