@@ -6,7 +6,6 @@ import {
   Tooltip,
   ReferenceLine,
   ResponsiveContainer,
-  Legend,
 } from 'recharts'
 
 function formatDateLabel(dateStr) {
@@ -57,8 +56,8 @@ const CustomTooltip = ({ active, payload }) => {
 }
 
 const LEGEND_ITEMS = [
-  { color: '#f97316', label: 'Voluntary (actual)' },
-  { color: '#ef4444', label: 'Involuntary (actual)' },
+  { color: '#f97316', label: 'Voluntary (actual)', opacity: 1 },
+  { color: '#ef4444', label: 'Involuntary (actual)', opacity: 1 },
   { color: '#f97316', label: 'Voluntary (projected)', opacity: 0.35 },
   { color: '#ef4444', label: 'Involuntary (projected)', opacity: 0.35 },
 ]
@@ -80,36 +79,36 @@ const CustomLegend = () => (
 export default function ChurnChart({ series, tPivotDate }) {
   if (!series || series.length === 0) return null
 
-  // Find the last actual day for each series so we can anchor the projected
-  // area at the transition point. A 0-value anchor at the pivot day gives
-  // the projected area's line the correct stack position there, eliminating
-  // the 1-day visual gap where neither actual nor projected fills.
-  const voluntaryPivotIdx   = series.findLastIndex((d) => d.is_actual)
+  // Find the last actual day for each series.
+  // The SVG linearGradient switches opacity at the midpoint between the last
+  // actual day and the first projected day — no gaps, no bridges needed.
   const involuntaryPivotIdx = series.findLastIndex((d) => d.involuntary_is_actual)
-  const addVolBridge = voluntaryPivotIdx   >= 0 && voluntaryPivotIdx   < series.length - 1
-  const addInvBridge = involuntaryPivotIdx >= 0 && involuntaryPivotIdx < series.length - 1
+  const voluntaryPivotIdx   = series.findLastIndex((d) => d.is_actual)
 
-  const chartData = series.map((d, i) => ({
+  const span = series.length - 1 || 1
+
+  // % along the x-axis where the gradient switches (0.5 = midpoint between days)
+  const invPct = involuntaryPivotIdx < 0
+    ? 0    // nothing matured — all projected
+    : involuntaryPivotIdx >= series.length - 1
+    ? 100  // everything matured — all actual
+    : ((involuntaryPivotIdx + 0.5) / span) * 100
+
+  const volPct = voluntaryPivotIdx < 0
+    ? 0
+    : voluntaryPivotIdx >= series.length - 1
+    ? 100
+    : ((voluntaryPivotIdx + 0.5) / span) * 100
+
+  const chartData = series.map((d) => ({
     date: d.date,
     is_actual: d.is_actual,
     daily_voluntary: d.daily_voluntary,
     daily_involuntary: d.daily_involuntary,
     daily_total: d.daily_total,
     cumulative_total: d.cumulative_total,
-    // The pivot day is moved into the projected series (faded) so the faded
-    // area starts at the pivot day's actual value and flows continuously into
-    // the projected period with no gap or zero-height wedge at the boundary.
-    voluntary_actual:    (d.is_actual && !(addVolBridge && i === voluntaryPivotIdx))
-                           ? d.daily_voluntary : null,
-    voluntary_projected: (!d.is_actual || (addVolBridge && i === voluntaryPivotIdx))
-                           ? d.daily_voluntary : null,
-    involuntary_actual:    (d.involuntary_is_actual && !(addInvBridge && i === involuntaryPivotIdx))
-                             ? d.daily_involuntary : null,
-    involuntary_projected: (!d.involuntary_is_actual || (addInvBridge && i === involuntaryPivotIdx))
-                             ? d.daily_involuntary : null,
   }))
 
-  // X-axis ticks: day 1 and every 5th day
   const xTicks = series
     .filter((d) => {
       const day = parseInt(d.date.split('-')[2], 10)
@@ -128,6 +127,22 @@ export default function ChurnChart({ series, tPivotDate }) {
       <div className="px-2 pt-4 pb-2">
         <ResponsiveContainer width="100%" height={280}>
           <ComposedChart data={chartData} margin={{ top: 8, right: 20, left: 10, bottom: 0 }}>
+
+            {/* Gradient fills: solid on actual days, faded on projected days.
+                Two stops at the same offset create a hard boundary (no gradual fade). */}
+            <defs>
+              <linearGradient id="volFill" x1="0" y1="0" x2="1" y2="0">
+                <stop offset={`${volPct}%`} stopColor="#f97316" stopOpacity={1} />
+                <stop offset={`${volPct}%`} stopColor="#f97316" stopOpacity={0.3} />
+                <stop offset="100%"         stopColor="#f97316" stopOpacity={0.3} />
+              </linearGradient>
+              <linearGradient id="invFill" x1="0" y1="0" x2="1" y2="0">
+                <stop offset={`${invPct}%`} stopColor="#ef4444" stopOpacity={1} />
+                <stop offset={`${invPct}%`} stopColor="#ef4444" stopOpacity={0.3} />
+                <stop offset="100%"         stopColor="#ef4444" stopOpacity={0.3} />
+              </linearGradient>
+            </defs>
+
             <XAxis
               dataKey="date"
               ticks={xTicks}
@@ -145,54 +160,24 @@ export default function ChurnChart({ series, tPivotDate }) {
             />
             <Tooltip content={<CustomTooltip />} />
 
-            {/* All four areas share one stackId: voluntary at bottom, involuntary on top.
-                On each day only one of (actual, projected) is non-null per type,
-                so the correct variant fills each position automatically. */}
+            {/* Voluntary — bottom of stack */}
             <Area
-              dataKey="voluntary_actual"
+              dataKey="daily_voluntary"
               stackId="stack"
               stroke="none"
-              fill="#f97316"
-              fillOpacity={1}
+              fill="url(#volFill)"
               dot={false}
-              connectNulls={false}
               isAnimationActive={false}
               legendType="none"
             />
+
+            {/* Involuntary — stacked on top of voluntary */}
             <Area
-              dataKey="voluntary_projected"
-              stackId="stack"
-              stroke="#f97316"
-              strokeWidth={1}
-              strokeDasharray="4 3"
-              fill="#f97316"
-              fillOpacity={0.25}
-              dot={false}
-              connectNulls={false}
-              isAnimationActive={false}
-              legendType="none"
-            />
-            <Area
-              dataKey="involuntary_actual"
+              dataKey="daily_involuntary"
               stackId="stack"
               stroke="none"
-              fill="#ef4444"
-              fillOpacity={1}
+              fill="url(#invFill)"
               dot={false}
-              connectNulls={false}
-              isAnimationActive={false}
-              legendType="none"
-            />
-            <Area
-              dataKey="involuntary_projected"
-              stackId="stack"
-              stroke="#ef4444"
-              strokeWidth={1}
-              strokeDasharray="4 3"
-              fill="#ef4444"
-              fillOpacity={0.25}
-              dot={false}
-              connectNulls={false}
               isAnimationActive={false}
               legendType="none"
             />
