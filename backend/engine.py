@@ -673,6 +673,7 @@ def run_prediction(dfs: dict, params: dict) -> dict:
     matured_fraction = denom / total_pool_weight if total_pool_weight > 0 else 0.0
 
     if realized_involuntary_churn <= 0 or denom <= 0:
+        Rm_live = None   # not computable — no confirmed failures or no matured pool
         Rm = FALLBACK_Rm
         calibration_mode = f"fallback_{round(FALLBACK_Rm * 100, 2)}pct"
     else:
@@ -736,6 +737,7 @@ def run_prediction(dfs: dict, params: dict) -> dict:
         "current_annual_failure_rate": round(current_annual_failure_rate, 6),
         "calibration_mode": calibration_mode,
         "fallback_rm_pct": round(FALLBACK_Rm * 100, 2),
+        "rm_live": round(Rm_live, 6) if Rm_live is not None else None,
         # Forecast
         "future_uncollectibles": round(future_uncollectibles, 2),
         "total_sales": round(total_sales, 2),

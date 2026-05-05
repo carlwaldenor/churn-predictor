@@ -120,25 +120,44 @@ export default function Walkthrough({ prediction, inputs }) {
           <p className="mt-1 font-mono text-xs bg-gray-50 rounded px-3 py-2 text-gray-700">
             {fmt(p.reported_total_churn)} − {fmt(p.reported_voluntary_churn)} = {fmt(p.realized_involuntary_churn)}
           </p>
-          <p className="mt-2">
-            {isLive
-              ? `Rₘ is solved from the matured pool:`
-              : isBlended
-              ? `Only ${p.matured_fraction_pct}% of the pool has matured — blending live Rₘ with the ${fallbackPct}% rolling fallback:`
-              : `Realized involuntary churn or matured pool was zero — using rolling fallback Rₘ = ${fallbackPct}%.`}
-          </p>
-          {(isLive || isBlended) && (
-            <p className="mt-1 font-mono text-xs bg-gray-50 rounded px-3 py-2 text-gray-700">
-              Rₘ = {rmFormula} = {fmtRate(p.rm)}
+
+          {/* Live Rm calculation — shown whenever there is a matured pool with failures */}
+          {p.rm_live != null && (
+            <>
+              <p className="mt-2">Live Rₘ from the matured pool:</p>
+              <p className="mt-1 font-mono text-xs bg-gray-50 rounded px-3 py-2 text-gray-700">
+                Rₘ_live = {fmt(p.realized_involuntary_churn)} ÷ ({fmt(p.matured_monthly_pool)} + {inputs.annual_risk_weight} × {fmt(p.matured_annual_pool)}) = {fmtRate(p.rm_live)}
+              </p>
+            </>
+          )}
+          {p.rm_live == null && (
+            <p className="mt-2 text-gray-500 text-xs italic">
+              No confirmed failures in the matured pool yet — Rₘ_live is not computable.
             </p>
           )}
+
+          {/* How the final Rm is derived */}
+          <p className="mt-2">
+            {isLive
+              ? `100% of the pool has matured — Rₘ = Rₘ_live.`
+              : isBlended
+              ? `Only ${p.matured_fraction_pct}% of the pool has matured — blending Rₘ_live with the ${fallbackPct}% rolling fallback:`
+              : `Realized involuntary churn or matured pool was zero — using rolling fallback Rₘ = ${fallbackPct}%.`}
+          </p>
+          {isBlended && (
+            <p className="mt-1 font-mono text-xs bg-gray-50 rounded px-3 py-2 text-gray-700">
+              Rₘ = {p.matured_fraction_pct}% × {fmtRate(p.rm_live)} + {(100 - p.matured_fraction_pct).toFixed(1)}% × {fallbackPct}% = {fmtRate(p.rm)}
+            </p>
+          )}
+
           <div className="flex flex-wrap gap-2 mt-2">
             <Pill
               label="Calibration"
               value={isLive ? 'Live' : isBlended ? `Blended (${p.matured_fraction_pct}% matured)` : `Fallback ${fallbackPct}%`}
               color={isLive ? 'green' : isBlended ? 'blue' : 'amber'}
             />
-            <Pill label="Rₘ" value={fmtRate(p.rm)} color="indigo" />
+            {p.rm_live != null && <Pill label="Rₘ_live" value={fmtRate(p.rm_live)} color="indigo" />}
+            <Pill label="Rₘ (final)" value={fmtRate(p.rm)} color="indigo" />
             <Pill label="Annual failure rate" value={fmtRate(p.current_annual_failure_rate)} color="indigo" />
           </div>
         </Step>
