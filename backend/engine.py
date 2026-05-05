@@ -605,21 +605,34 @@ def run_prediction(dfs: dict, params: dict) -> dict:
     realized_involuntary_churn = reported_total_churn - reported_voluntary_churn
     denom = matured_monthly + annual_risk_weight * matured_annual
 
-    # Guard: require at least 10 % of the pool to be matured before trusting
-    # live calibration. On the last day of the analysis month (e.g. March 31
-    # with 30-day dunning) only day-1 renewals are matured (~3 % of pool) —
-    # too small a sample to derive a reliable Rm. Fall back to 2.9 % until
-    # enough data has accumulated (typically ~3 days into the following month).
+    # Credibility weighting: blend the live Rm with the historical fallback rate
+    # proportional to how much of the pool has completed dunning.
+    #
+    #   credibility = matured_fraction   (0.0 → 1.0)
+    #   Rm = credibility × Rm_live + (1 − credibility) × Rm_fallback
+    #
+    # This means:
+    #   ~3 % matured (Mar 31)  →  3 % live,  97 % fallback  ≈ pure fallback
+    #   ~10% matured (Apr 3)   → 10 % live,  90 % fallback  ≈ near-fallback
+    #   ~50% matured (Apr 17)  → 50 % live,  50 % fallback  → balanced
+    #   100% matured (May 1+)  → pure live                  → fully data-driven
+    #
+    # Avoids the hard threshold switch that caused early-month overestimates.
+    FALLBACK_Rm = 0.029
     total_pool_weight = denom + pending_monthly + annual_risk_weight * pending_annual
     matured_fraction = denom / total_pool_weight if total_pool_weight > 0 else 0.0
-    MIN_MATURED_FRACTION = 0.10
 
-    if realized_involuntary_churn <= 0 or denom <= 0 or matured_fraction < MIN_MATURED_FRACTION:
-        Rm = 0.029
+    if realized_involuntary_churn <= 0 or denom <= 0:
+        Rm = FALLBACK_Rm
         calibration_mode = "fallback_2.9pct"
     else:
-        Rm = realized_involuntary_churn / denom
-        calibration_mode = "live"
+        Rm_live = realized_involuntary_churn / denom
+        credibility = matured_fraction  # 0.0–1.0
+        Rm = credibility * Rm_live + (1.0 - credibility) * FALLBACK_Rm
+        if matured_fraction >= 0.999:
+            calibration_mode = "live"
+        else:
+            calibration_mode = f"blended_{round(matured_fraction * 100)}pct"
 
     current_monthly_failure_rate = Rm
     current_annual_failure_rate = Rm * annual_risk_weight

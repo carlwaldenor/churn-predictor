@@ -136,7 +136,8 @@ export default function Results({ prediction, savedRuns = [], onLoadRun }) {
     )
   }
 
-  const isLive = prediction.calibration_mode === 'live'
+  const isLive    = prediction.calibration_mode === 'live'
+  const isBlended = prediction.calibration_mode?.startsWith('blended')
 
   return (
     <div>
@@ -166,13 +167,19 @@ export default function Results({ prediction, savedRuns = [], onLoadRun }) {
           )}
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ${
-              isLive
-                ? 'bg-green-100 text-green-800'
-                : 'bg-amber-100 text-amber-800'
+              isLive    ? 'bg-green-100 text-green-800'
+            : isBlended ? 'bg-blue-100 text-blue-800'
+            :             'bg-amber-100 text-amber-800'
             }`}
           >
-            <span className={`h-2 w-2 rounded-full ${isLive ? 'bg-green-500' : 'bg-amber-500'}`} />
-            {isLive ? 'Live Calibration' : 'Fallback (2.9%)'}
+            <span className={`h-2 w-2 rounded-full ${
+              isLive    ? 'bg-green-500'
+            : isBlended ? 'bg-blue-500'
+            :             'bg-amber-500'
+            }`} />
+            {isLive    ? 'Live Calibration'
+           : isBlended ? `Blended (${prediction.matured_fraction_pct}% matured)`
+           :             'Fallback (2.9%)'}
           </span>
         </div>
       </div>
