@@ -96,12 +96,17 @@ export default function ChurnChart({ series, tPivotDate }) {
     daily_involuntary: d.daily_involuntary,
     daily_total: d.daily_total,
     cumulative_total: d.cumulative_total,
-    voluntary_actual:      d.is_actual              ? d.daily_voluntary   : null,
-    voluntary_projected:   !d.is_actual             ? d.daily_voluntary
-                         : (addVolBridge && i === voluntaryPivotIdx) ? 0   : null,
-    involuntary_actual:    d.involuntary_is_actual  ? d.daily_involuntary : null,
-    involuntary_projected: !d.involuntary_is_actual ? d.daily_involuntary
-                         : (addInvBridge && i === involuntaryPivotIdx) ? 0  : null,
+    // The pivot day is moved into the projected series (faded) so the faded
+    // area starts at the pivot day's actual value and flows continuously into
+    // the projected period with no gap or zero-height wedge at the boundary.
+    voluntary_actual:    (d.is_actual && !(addVolBridge && i === voluntaryPivotIdx))
+                           ? d.daily_voluntary : null,
+    voluntary_projected: (!d.is_actual || (addVolBridge && i === voluntaryPivotIdx))
+                           ? d.daily_voluntary : null,
+    involuntary_actual:    (d.involuntary_is_actual && !(addInvBridge && i === involuntaryPivotIdx))
+                             ? d.daily_involuntary : null,
+    involuntary_projected: (!d.involuntary_is_actual || (addInvBridge && i === involuntaryPivotIdx))
+                             ? d.daily_involuntary : null,
   }))
 
   // X-axis ticks: day 1 and every 5th day
