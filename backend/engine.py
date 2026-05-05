@@ -605,23 +605,20 @@ def run_prediction(dfs: dict, params: dict) -> dict:
     realized_involuntary_churn = reported_total_churn - reported_voluntary_churn
     denom = matured_monthly + annual_risk_weight * matured_annual
 
-    # Credibility weighting — one-sided downward correction.
+    # Credibility weighting: blend the live Rm with the historical fallback rate
+    # proportional to how much of the pool has completed dunning.
     #
-    # When the live Rm is ABOVE the historical fallback (2.9 %), small-sample
-    # noise is pulling the estimate up. We blend it back toward the prior,
-    # weighted by how much of the pool has completed dunning:
+    #   credibility = matured_fraction   (0.0 → 1.0)
+    #   Rm = credibility × Rm_live + (1 − credibility) × Rm_fallback
     #
-    #   Rm = matured_fraction × Rm_live + (1 − matured_fraction) × 2.9 %
+    # This means:
+    #   ~3 % matured (Mar 31)  →  3 % live,  97 % fallback  ≈ pure fallback
+    #   ~17% matured (Apr 3)   → 17 % live,  83 % fallback  ≈ near-fallback
+    #   ~50% matured (Apr 17)  → 50 % live,  50 % fallback  → balanced
+    #   100% matured (May 1+)  → pure live                  → fully data-driven
     #
-    # When the live Rm is AT OR BELOW the fallback, the estimate is already
-    # conservative — blending would push it back up, which is the wrong
-    # direction. In that case we use Rm_live directly (no adjustment).
-    #
-    # Effect:
-    #   Mar 31, Rm_live 8.6 %, 3 % matured  → Rm ≈ 3.0 % (near-fallback)
-    #   Apr 3,  Rm_live 2.8 %, 17% matured  → Rm = 2.8 % (unchanged)
-    #   Apr 17, Rm_live 3.5 %, 50% matured  → Rm ≈ 3.2 % (blended down)
-    #   May 1+, 100% matured               → Rm = Rm_live (fully data-driven)
+    # Symmetric in both directions: a noisy low early Rm is pulled back up toward
+    # the prior just as a noisy high one is pulled down — both equally uncertain.
     FALLBACK_Rm = 0.029
     total_pool_weight = denom + pending_monthly + annual_risk_weight * pending_annual
     matured_fraction = denom / total_pool_weight if total_pool_weight > 0 else 0.0
@@ -631,12 +628,8 @@ def run_prediction(dfs: dict, params: dict) -> dict:
         calibration_mode = "fallback_2.9pct"
     else:
         Rm_live = realized_involuntary_churn / denom
-        if Rm_live > FALLBACK_Rm:
-            # Live rate is elevated — blend downward proportional to matured fraction
-            Rm = matured_fraction * Rm_live + (1.0 - matured_fraction) * FALLBACK_Rm
-        else:
-            # Live rate is already at or below the historical average — trust it as-is
-            Rm = Rm_live
+        credibility = matured_fraction  # 0.0–1.0
+        Rm = credibility * Rm_live + (1.0 - credibility) * FALLBACK_Rm
         if matured_fraction >= 0.999:
             calibration_mode = "live"
         else:
