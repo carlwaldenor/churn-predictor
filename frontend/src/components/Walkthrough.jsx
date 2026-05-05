@@ -35,9 +35,10 @@ function Step({ number, title, children }) {
 function Pill({ label, value, color = 'indigo' }) {
   const colours = {
     indigo: 'bg-indigo-50 text-indigo-800 border-indigo-200',
-    green: 'bg-green-50 text-green-800 border-green-200',
-    red: 'bg-red-50 text-red-800 border-red-200',
-    amber: 'bg-amber-50 text-amber-800 border-amber-200',
+    blue:   'bg-blue-50 text-blue-800 border-blue-200',
+    green:  'bg-green-50 text-green-800 border-green-200',
+    red:    'bg-red-50 text-red-800 border-red-200',
+    amber:  'bg-amber-50 text-amber-800 border-amber-200',
   }
   return (
     <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-xs font-medium ${colours[color]}`}>
@@ -57,11 +58,15 @@ export default function Walkthrough({ prediction, inputs }) {
   }
 
   const p = prediction
-  const isLive = p.calibration_mode === 'live'
+  const isLive    = p.calibration_mode === 'live'
+  const isBlended = p.calibration_mode?.startsWith('blended')
+  const fallbackPct = p.fallback_rm_pct ?? 1.9
 
   const rmFormula = isLive
     ? `${fmt(p.realized_involuntary_churn)} ÷ (${fmt(p.matured_monthly_pool)} + ${inputs.annual_risk_weight} × ${fmt(p.matured_annual_pool)})`
-    : 'Fallback applied — realized involuntary churn or matured pool was zero'
+    : isBlended
+    ? `${p.matured_fraction_pct}% × Rₘ_live + ${(100 - p.matured_fraction_pct).toFixed(1)}% × ${fallbackPct}% fallback`
+    : `Fallback applied — realized involuntary churn or matured pool was zero`
 
   return (
     <div>
@@ -118,9 +123,11 @@ export default function Walkthrough({ prediction, inputs }) {
           <p className="mt-2">
             {isLive
               ? `Rₘ is solved from the matured pool:`
-              : `Realized involuntary churn or matured pool was zero — using historical fallback Rₘ = 2%.`}
+              : isBlended
+              ? `Only ${p.matured_fraction_pct}% of the pool has matured — blending live Rₘ with the ${fallbackPct}% rolling fallback:`
+              : `Realized involuntary churn or matured pool was zero — using rolling fallback Rₘ = ${fallbackPct}%.`}
           </p>
-          {isLive && (
+          {(isLive || isBlended) && (
             <p className="mt-1 font-mono text-xs bg-gray-50 rounded px-3 py-2 text-gray-700">
               Rₘ = {rmFormula} = {fmtRate(p.rm)}
             </p>
@@ -128,8 +135,8 @@ export default function Walkthrough({ prediction, inputs }) {
           <div className="flex flex-wrap gap-2 mt-2">
             <Pill
               label="Calibration"
-              value={isLive ? 'Live' : 'Fallback 2%'}
-              color={isLive ? 'green' : 'amber'}
+              value={isLive ? 'Live' : isBlended ? `Blended (${p.matured_fraction_pct}% matured)` : `Fallback ${fallbackPct}%`}
+              color={isLive ? 'green' : isBlended ? 'blue' : 'amber'}
             />
             <Pill label="Rₘ" value={fmtRate(p.rm)} color="indigo" />
             <Pill label="Annual failure rate" value={fmtRate(p.current_annual_failure_rate)} color="indigo" />
