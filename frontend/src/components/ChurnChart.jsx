@@ -80,11 +80,16 @@ const CustomLegend = () => (
 export default function ChurnChart({ series, tPivotDate }) {
   if (!series || series.length === 0) return null
 
-  // Split each series into actual/projected segments.
-  // All four areas share one stackId so the render order in JSX controls
-  // the stack: voluntary (bottom) → involuntary (top), regardless of
-  // whether a given day is actual or projected.
-  const chartData = series.map((d) => ({
+  // Find the last actual day for each series so we can anchor the projected
+  // area at the transition point. A 0-value anchor at the pivot day gives
+  // the projected area's line the correct stack position there, eliminating
+  // the 1-day visual gap where neither actual nor projected fills.
+  const voluntaryPivotIdx   = series.findLastIndex((d) => d.is_actual)
+  const involuntaryPivotIdx = series.findLastIndex((d) => d.involuntary_is_actual)
+  const addVolBridge = voluntaryPivotIdx   >= 0 && voluntaryPivotIdx   < series.length - 1
+  const addInvBridge = involuntaryPivotIdx >= 0 && involuntaryPivotIdx < series.length - 1
+
+  const chartData = series.map((d, i) => ({
     date: d.date,
     is_actual: d.is_actual,
     daily_voluntary: d.daily_voluntary,
@@ -92,9 +97,11 @@ export default function ChurnChart({ series, tPivotDate }) {
     daily_total: d.daily_total,
     cumulative_total: d.cumulative_total,
     voluntary_actual:      d.is_actual              ? d.daily_voluntary   : null,
-    voluntary_projected:   !d.is_actual             ? d.daily_voluntary   : null,
+    voluntary_projected:   !d.is_actual             ? d.daily_voluntary
+                         : (addVolBridge && i === voluntaryPivotIdx) ? 0   : null,
     involuntary_actual:    d.involuntary_is_actual  ? d.daily_involuntary : null,
-    involuntary_projected: !d.involuntary_is_actual ? d.daily_involuntary : null,
+    involuntary_projected: !d.involuntary_is_actual ? d.daily_involuntary
+                         : (addInvBridge && i === involuntaryPivotIdx) ? 0  : null,
   }))
 
   // X-axis ticks: day 1 and every 5th day
