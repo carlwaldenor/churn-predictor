@@ -330,6 +330,20 @@ def _build_daily_churn_series(
     actual_pool_sum = sum(r["pool_weight"] for r in raw if r["is_actual"])
     n_actual        = sum(1 for r in raw if r["is_actual"])
 
+    # Only use CSV shape when the CSV covers the full actual period.
+    # If the CSV was exported mid-month (e.g. only has data for May 1–2 when
+    # all of May is "actual" from a June run), days without CSV data get
+    # raw_value = 0, concentrating all churn on the covered days.
+    # Fix: check whether the last non-zero CSV date reaches chart_cutoff.
+    last_csv_date_in_period = max(
+        (r["date_str"] for r in raw if r["is_actual"] and r["raw_value"] > 0),
+        default=None,
+    )
+    csv_covers_actual_period = (
+        last_csv_date_in_period is not None
+        and last_csv_date_in_period >= chart_cutoff.isoformat()
+    )
+
     # ------------------------------------------------------------------
     # Pass 2: compute final daily values and running cumulative
     # ------------------------------------------------------------------
@@ -339,9 +353,11 @@ def _build_daily_churn_series(
     for r in raw:
         # --- Voluntary ---
         if r["is_actual"]:
-            if actual_csv_sum > 0:
+            if csv_covers_actual_period and actual_csv_sum > 0:
+                # CSV has data through the end of the actual period — use it as shape
                 daily_voluntary = r["raw_value"] / actual_csv_sum * reported_voluntary_churn
             elif actual_pool_sum > 0:
+                # CSV is incomplete or absent — distribute by renewal pool weight
                 daily_voluntary = r["pool_weight"] / actual_pool_sum * reported_voluntary_churn
             else:
                 daily_voluntary = reported_voluntary_churn / n_actual if n_actual else 0.0
