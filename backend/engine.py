@@ -277,10 +277,25 @@ def _build_daily_churn_series(
     # Realized involuntary churn (may be 0 when fallback is active)
     realized_involuntary_churn = reported_total_churn - reported_voluntary_churn
 
-    # Voluntary rate per unit of pool weight (for future projected days)
+    # Voluntary rate per unit of pool weight (used for projected-day total only)
     voluntary_rate = (
         reported_voluntary_churn / matured_pool_weight
         if matured_pool_weight > 0 else 0.0
+    )
+
+    # Pre-compute projected-voluntary flat daily amount.
+    # We keep the *aggregate* estimate (voluntary_rate × projected pool weight) correct
+    # but spread it evenly across projected days to avoid pool-weight spikes on
+    # the chart (voluntary cancellations can happen on any day, so uniform is the
+    # right assumption when we have no actual daily data).
+    n_projected = sum(1 for i in range(days_in_month) if date(ay, am, i + 1) > chart_cutoff)
+    projected_vol_pool = sum(
+        pool_weights[i] for i in range(days_in_month)
+        if date(ay, am, i + 1) > chart_cutoff
+    )
+    total_projected_voluntary = voluntary_rate * projected_vol_pool
+    daily_projected_voluntary_flat = (
+        total_projected_voluntary / n_projected if n_projected > 0 else 0.0
     )
 
     # ------------------------------------------------------------------
@@ -301,17 +316,14 @@ def _build_daily_churn_series(
             else 1.0 / days_in_month
         )
 
-        # CSV shape signal (used as voluntary shape for actual days)
+        # CSV shape signal (used as voluntary shape for actual days when available)
         csv_val = _get_daily_csv_churn(
             dfs.get("daily_growth_monthly"),
             dfs.get("daily_growth_annual"),
             date_str,
         )
-        # For projected voluntary days: use CSV if available, else rate-based
-        projected_voluntary = (
-            csv_val if (not is_actual and csv_val > 0)
-            else voluntary_rate * pool_weights[day_idx]
-        )
+        # For projected voluntary days: flat rate (uniform), not pool-weight-proportional
+        projected_voluntary = daily_projected_voluntary_flat
 
         raw.append({
             "date_str": date_str,
@@ -326,9 +338,8 @@ def _build_daily_churn_series(
     # ------------------------------------------------------------------
     # Scale factors for voluntary distribution across actual days
     # ------------------------------------------------------------------
-    actual_csv_sum  = sum(r["raw_value"] for r in raw if r["is_actual"])
-    actual_pool_sum = sum(r["pool_weight"] for r in raw if r["is_actual"])
-    n_actual        = sum(1 for r in raw if r["is_actual"])
+    actual_csv_sum = sum(r["raw_value"] for r in raw if r["is_actual"])
+    n_actual       = sum(1 for r in raw if r["is_actual"])
 
     # Only use CSV shape when the CSV covers the full actual period.
     # If the CSV was exported mid-month (e.g. only has data for May 1–2 when
@@ -356,10 +367,12 @@ def _build_daily_churn_series(
             if csv_covers_actual_period and actual_csv_sum > 0:
                 # CSV has data through the end of the actual period — use it as shape
                 daily_voluntary = r["raw_value"] / actual_csv_sum * reported_voluntary_churn
-            elif actual_pool_sum > 0:
-                # CSV is incomplete or absent — distribute by renewal pool weight
-                daily_voluntary = r["pool_weight"] / actual_pool_sum * reported_voluntary_churn
             else:
+                # No daily churn CSV available — distribute evenly across actual days.
+                # Uniform is the correct maximum-entropy assumption: voluntary cancellations
+                # can happen on any day of the month, so without data we have no basis for
+                # weighting one day over another. (Pool weights reflect billing-cycle timing,
+                # which drives involuntary churn but not voluntary cancellations.)
                 daily_voluntary = reported_voluntary_churn / n_actual if n_actual else 0.0
         else:
             daily_voluntary = r["projected_voluntary"]
