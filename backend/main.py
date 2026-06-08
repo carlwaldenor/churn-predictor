@@ -154,11 +154,22 @@ def debug_pool(analysis_month: str):
 
     rows_info = []
     for _, row in cohorts_df.iterrows():
-        signup_ym = engine._parse_ym(str(row[signup_col])) if signup_col else "?"
+        try:
+            signup_ym = engine._parse_ym(str(row[signup_col])) if signup_col else "?"
+        except Exception:
+            signup_ym = "?"
         reason = None
-        if signup_ym >= analysis_month:
+        # Guard against unparseable signup_ym before string comparison
+        if signup_ym == "?" or not signup_ym:
+            reason = "excluded (bad signup_ym)"
+        elif signup_ym >= analysis_month:
             reason = "excluded (signup >= analysis_month)"
-        T = engine._months_elapsed(signup_ym, analysis_month) if reason is None else None
+        T = None
+        if reason is None:
+            try:
+                T = engine._months_elapsed(signup_ym, analysis_month)
+            except Exception as exc:
+                reason = f"excluded (_months_elapsed error: {exc})"
         if T is not None and (T <= 0 or T > 96):
             reason = f"excluded (T={T} out of range)"
         cohort_size = None
@@ -170,10 +181,13 @@ def debug_pool(analysis_month: str):
             except Exception:
                 reason = "bad cohort_size"
         if reason is None:
-            cum_churn = engine._get_cumulative_churn(row, T - 1)
-            survivors = max(0.0, cohort_size - cum_churn)
-            if survivors == 0:
-                reason = "survivors=0"
+            try:
+                cum_churn = engine._get_cumulative_churn(row, T - 1)
+                survivors = max(0.0, cohort_size - cum_churn)
+                if survivors == 0:
+                    reason = "survivors=0"
+            except Exception as exc:
+                reason = f"error computing survivors: {exc}"
         rows_info.append({
             "signup_ym": signup_ym,
             "T": T,
