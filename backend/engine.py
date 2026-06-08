@@ -283,19 +283,40 @@ def _build_daily_churn_series(
         if matured_pool_weight > 0 else 0.0
     )
 
+    # Count actual vs projected voluntary days (needed before Pass 1 for flat-rate calc)
+    n_actual_pre = sum(1 for i in range(days_in_month) if date(ay, am, i + 1) <= chart_cutoff)
+    n_projected   = days_in_month - n_actual_pre
+
     # Pre-compute projected-voluntary flat daily amount.
-    # We keep the *aggregate* estimate (voluntary_rate × projected pool weight) correct
-    # but spread it evenly across projected days to avoid pool-weight spikes on
-    # the chart (voluntary cancellations can happen on any day, so uniform is the
-    # right assumption when we have no actual daily data).
-    n_projected = sum(1 for i in range(days_in_month) if date(ay, am, i + 1) > chart_cutoff)
-    projected_vol_pool = sum(
-        pool_weights[i] for i in range(days_in_month)
-        if date(ay, am, i + 1) > chart_cutoff
-    )
-    total_projected_voluntary = voluntary_rate * projected_vol_pool
+    # We keep the *aggregate* estimate correct but spread evenly to avoid pool-weight spikes.
+    # Edge case: when t_pivot_date < month_start (long dunning, early in month), the entire
+    # May pool is "pending" → matured_pool_weight = 0 → voluntary_rate = 0 → projected
+    # voluntary would be zero.  Fall back to the observed actual daily rate instead.
+    if matured_pool_weight > 0:
+        projected_vol_pool = sum(
+            pool_weights[i] for i in range(days_in_month)
+            if date(ay, am, i + 1) > chart_cutoff
+        )
+        total_projected_voluntary = voluntary_rate * projected_vol_pool
+    else:
+        # No matured pool: use observed daily voluntary rate from the actual period
+        observed_daily_voluntary = (
+            reported_voluntary_churn / n_actual_pre if n_actual_pre > 0 else 0.0
+        )
+        total_projected_voluntary = observed_daily_voluntary * n_projected
+
     daily_projected_voluntary_flat = (
         total_projected_voluntary / n_projected if n_projected > 0 else 0.0
+    )
+
+    # When t_pivot_date falls before the analysis month (long dunning + early current date),
+    # no May day has involuntary_is_actual = True, so the realized involuntary churn
+    # (which came from prior-month renewals completing their dunning in May) would never
+    # appear in the chart.  Pre-compute a per-day share to add to actual days.
+    realized_inv_per_actual_day = (
+        realized_involuntary_churn / n_actual_pre
+        if matured_pool_weight == 0 and n_actual_pre > 0 and realized_involuntary_churn > 0
+        else 0.0
     )
 
     # ------------------------------------------------------------------
@@ -390,6 +411,13 @@ def _build_daily_churn_series(
                 r["pool_weight"] / pending_pool_weight * future_uncollectibles
                 if pending_pool_weight > 0 else 0.0
             )
+            # Special case: t_pivot_date is before the analysis month (long dunning +
+            # early current_date).  The realized involuntary (from prior-month pool
+            # renewals that completed dunning this month) never gets assigned because no
+            # May day has involuntary_is_actual = True.  Place it on actual days evenly
+            # so it appears in the chart and contributes to the cumulative correctly.
+            if r["is_actual"]:
+                daily_involuntary += realized_inv_per_actual_day
 
         daily_total = daily_voluntary + daily_involuntary
 
