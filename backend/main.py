@@ -140,8 +140,16 @@ def get_prediction_runs():
 @app.get("/api/debug-pool/{analysis_month}")
 def debug_pool(analysis_month: str):
     """Return per-cohort breakdown for _build_renewal_pool to diagnose pool issues."""
-    import calendar as cal
-    from datetime import date as _date
+    try:
+        return _debug_pool_inner(analysis_month)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        raise HTTPException(status_code=500, detail=traceback.format_exc()) from exc
+
+
+def _debug_pool_inner(analysis_month: str):
     dfs = {ft: data_store.load_csv(ft) for ft in data_store.VALID_FILE_TYPES}
     cohorts_df = dfs.get("monthly_cohorts")
     if cohorts_df is None:
