@@ -134,87 +134,127 @@ def get_prediction_runs():
 
 
 # ---------------------------------------------------------------------------
+# Debug: inspect CSV column names (safe, can't crash)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/debug-columns/{file_type}")
+def debug_columns(file_type: str):
+    """Return column names and first/last rows of a CSV — all values coerced to str."""
+    try:
+        df = data_store.load_csv(file_type)
+        if df is None:
+            return {"status": "not_uploaded"}
+        df2 = engine._normalize_cohort_df(df)
+        cols = [str(c) for c in df2.columns]
+        def safe_row(r):
+            return {str(k): str(v) for k, v in r.items()}
+        return {
+            "status": "ok",
+            "shape": [int(df2.shape[0]), int(df2.shape[1])],
+            "columns": cols,
+            "first_row": safe_row(df2.iloc[0].to_dict()) if len(df2) > 0 else {},
+            "last_row":  safe_row(df2.iloc[-1].to_dict()) if len(df2) > 0 else {},
+        }
+    except Exception as exc:
+        import traceback
+        return {"status": "error", "detail": traceback.format_exc()}
+
+
+# ---------------------------------------------------------------------------
 # Debug: cohort breakdown for a specific month
 # ---------------------------------------------------------------------------
+
+def _safe(v):
+    """Convert a value to a JSON-safe Python primitive."""
+    if v is None:
+        return None
+    try:
+        import math
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        # Keep ints as ints
+        if isinstance(v, (int,)) or (hasattr(v, 'item') and isinstance(v.item(), int)):
+            return int(v)
+        return f
+    except (TypeError, ValueError):
+        return str(v)
+
 
 @app.get("/api/debug-pool/{analysis_month}")
 def debug_pool(analysis_month: str):
     """Return per-cohort breakdown for _build_renewal_pool to diagnose pool issues."""
     try:
-        return _debug_pool_inner(analysis_month)
+        df_raw = data_store.load_csv("monthly_cohorts")
+        if df_raw is None:
+            raise HTTPException(status_code=400, detail="monthly_cohorts not uploaded")
+
+        cohorts_df = engine._normalize_cohort_df(df_raw)
+        cohorts_df = engine._clean_df(cohorts_df)
+        signup_col = engine._find_col(cohorts_df, ["signup_month", "signup", "month", "cohort_month"])
+        size_col   = engine._find_col(cohorts_df, ["cohort_size", "cohort_value", "size", "subscribers", "count"])
+
+        rows_info = []
+        for _, row in cohorts_df.iterrows():
+            try:
+                signup_ym = engine._parse_ym(str(row[signup_col])) if signup_col else "?"
+            except Exception:
+                signup_ym = "?"
+            reason = None
+            if signup_ym == "?" or not signup_ym:
+                reason = "excluded (bad signup_ym)"
+            elif signup_ym >= analysis_month:
+                reason = "excluded (signup >= analysis_month)"
+            T = None
+            if reason is None:
+                try:
+                    T = int(engine._months_elapsed(signup_ym, analysis_month))
+                except Exception as e:
+                    reason = f"excluded (_months_elapsed error: {e})"
+            if T is not None and (T <= 0 or T > 96):
+                reason = f"excluded (T={T} out of range)"
+            cohort_size = None
+            cum_churn = None
+            survivors = None
+            if reason is None and size_col:
+                try:
+                    cohort_size = float(row[size_col])
+                except Exception:
+                    reason = "bad cohort_size"
+            if reason is None:
+                try:
+                    cum_churn = float(engine._get_cumulative_churn(row, T - 1))
+                    survivors = float(max(0.0, cohort_size - cum_churn))
+                    if survivors == 0.0:
+                        reason = "survivors=0"
+                except Exception as e:
+                    reason = f"error computing survivors: {e}"
+            rows_info.append({
+                "signup_ym": str(signup_ym),
+                "T": T,
+                "cohort_size": _safe(cohort_size),
+                "cum_churn_at_T1": _safe(cum_churn),
+                "survivors": _safe(survivors),
+                "reason_excluded": reason,
+            })
+
+        contributing = [r for r in rows_info if r["reason_excluded"] is None]
+        excluded     = [r for r in rows_info if r["reason_excluded"] is not None]
+        total_surv   = float(sum(r["survivors"] for r in contributing)) if contributing else 0.0
+
+        return {
+            "analysis_month": str(analysis_month),
+            "total_cohorts": int(len(rows_info)),
+            "contributing_cohorts": int(len(contributing)),
+            "excluded_cohorts": int(len(excluded)),
+            "total_survivors": round(total_surv, 2),
+            "signup_col": str(signup_col) if signup_col else None,
+            "size_col": str(size_col) if size_col else None,
+            "contributing": contributing[:50],
+            "excluded_sample": excluded[:20],
+        }
     except HTTPException:
         raise
     except Exception as exc:
         import traceback
         raise HTTPException(status_code=500, detail=traceback.format_exc()) from exc
-
-
-def _debug_pool_inner(analysis_month: str):
-    dfs = {ft: data_store.load_csv(ft) for ft in data_store.VALID_FILE_TYPES}
-    cohorts_df = dfs.get("monthly_cohorts")
-    if cohorts_df is None:
-        raise HTTPException(status_code=400, detail="monthly_cohorts not uploaded")
-
-    cohorts_df = engine._normalize_cohort_df(cohorts_df)
-    cohorts_df = engine._clean_df(cohorts_df)
-    signup_col = engine._find_col(cohorts_df, ["signup_month", "signup", "month", "cohort_month"])
-    size_col   = engine._find_col(cohorts_df, ["cohort_size", "cohort_value", "size", "subscribers", "count"])
-
-    rows_info = []
-    for _, row in cohorts_df.iterrows():
-        try:
-            signup_ym = engine._parse_ym(str(row[signup_col])) if signup_col else "?"
-        except Exception:
-            signup_ym = "?"
-        reason = None
-        # Guard against unparseable signup_ym before string comparison
-        if signup_ym == "?" or not signup_ym:
-            reason = "excluded (bad signup_ym)"
-        elif signup_ym >= analysis_month:
-            reason = "excluded (signup >= analysis_month)"
-        T = None
-        if reason is None:
-            try:
-                T = engine._months_elapsed(signup_ym, analysis_month)
-            except Exception as exc:
-                reason = f"excluded (_months_elapsed error: {exc})"
-        if T is not None and (T <= 0 or T > 96):
-            reason = f"excluded (T={T} out of range)"
-        cohort_size = None
-        cum_churn = None
-        survivors = None
-        if reason is None and size_col:
-            try:
-                cohort_size = float(row[size_col])
-            except Exception:
-                reason = "bad cohort_size"
-        if reason is None:
-            try:
-                cum_churn = engine._get_cumulative_churn(row, T - 1)
-                survivors = max(0.0, cohort_size - cum_churn)
-                if survivors == 0:
-                    reason = "survivors=0"
-            except Exception as exc:
-                reason = f"error computing survivors: {exc}"
-        rows_info.append({
-            "signup_ym": signup_ym,
-            "T": T,
-            "cohort_size": cohort_size,
-            "cum_churn_at_T1": cum_churn,
-            "survivors": survivors,
-            "reason_excluded": reason,
-        })
-
-    contributing = [r for r in rows_info if r["reason_excluded"] is None]
-    excluded     = [r for r in rows_info if r["reason_excluded"] is not None]
-    return {
-        "analysis_month": analysis_month,
-        "total_cohorts": len(rows_info),
-        "contributing_cohorts": len(contributing),
-        "excluded_cohorts": len(excluded),
-        "total_survivors": round(sum(r["survivors"] for r in contributing), 2),
-        "signup_col": signup_col,
-        "size_col": size_col,
-        "contributing": contributing[:50],   # cap at 50 rows to keep response small
-        "excluded_sample": excluded[:20],
-    }
