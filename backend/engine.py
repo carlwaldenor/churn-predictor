@@ -129,27 +129,36 @@ def _get_cumulative_churn(row: pd.Series, t: int) -> float:
     Tries "tN" format first (e.g. "t11"), then plain numeric string "N" (e.g. "11")
     to support CSVs that export columns as bare numbers.
 
-    If the exact column for age t is absent (data horizon reached — the cohort
-    is older than the CSV's coverage), fall back to the *last available* churn
-    column (highest tN / N present).  This prevents the bug where a very old
-    cohort beyond the file's column range is treated as having zero cumulative
-    churn, inflating its survivor count and the renewal pool.
+    Two fallback layers:
+    1. If the exact column value is NaN (future month — not yet in the export),
+       skip it and fall through to layer 2.
+    2. If the exact column doesn't exist, OR its value was NaN, find the highest
+       age column that exists AND has a real (non-NaN) value.
+
+    This correctly handles the common case where a CSV exported mid-month has NaN
+    for the most recent month columns (data not yet available), rather than
+    treating NaN as "zero churn" and dramatically overstating survivor counts.
     """
     if t <= 0:
         return 0.0
+
+    # Primary check: look for the exact column, accept only non-NaN values
     for col in (f"t{t}", str(t)):
         if col in row.index:
             try:
-                return float(row[col])
+                val = float(row[col])
+                if not np.isnan(val):
+                    return val
             except (ValueError, TypeError):
-                return 0.0
+                pass  # fall through to fallback
+            # Column found but value is NaN — don't return, fall through
+            break
 
-    # Column for exact age not found — find the highest available tN/N column
+    # Fallback: find the highest valid (non-NaN) column with age ≤ t
     best_t = 0
     best_val = 0.0
     for col in row.index:
         col_str = str(col)
-        # Match "t<number>" or bare "<number>"
         if re.match(r"^t(\d+)$", col_str):
             age = int(col_str[1:])
         elif re.match(r"^\d+$", col_str):
@@ -159,8 +168,9 @@ def _get_cumulative_churn(row: pd.Series, t: int) -> float:
         if 0 < age <= t and age > best_t:
             try:
                 val = float(row[col])
-                best_t = age
-                best_val = val
+                if not np.isnan(val):   # only accept real values
+                    best_t = age
+                    best_val = val
             except (ValueError, TypeError):
                 continue
     return best_val
