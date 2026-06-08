@@ -131,3 +131,68 @@ def renewal_pool_history():
 @app.get("/api/prediction-runs")
 def get_prediction_runs():
     return data_store.load_predictions()
+
+
+# ---------------------------------------------------------------------------
+# Debug: cohort breakdown for a specific month
+# ---------------------------------------------------------------------------
+
+@app.get("/api/debug-pool/{analysis_month}")
+def debug_pool(analysis_month: str):
+    """Return per-cohort breakdown for _build_renewal_pool to diagnose pool issues."""
+    import calendar as cal
+    from datetime import date as _date
+    dfs = {ft: data_store.load_csv(ft) for ft in data_store.VALID_FILE_TYPES}
+    cohorts_df = dfs.get("monthly_cohorts")
+    if cohorts_df is None:
+        raise HTTPException(status_code=400, detail="monthly_cohorts not uploaded")
+
+    cohorts_df = engine._normalize_cohort_df(cohorts_df)
+    cohorts_df = engine._clean_df(cohorts_df)
+    signup_col = engine._find_col(cohorts_df, ["signup_month", "signup", "month", "cohort_month"])
+    size_col   = engine._find_col(cohorts_df, ["cohort_size", "cohort_value", "size", "subscribers", "count"])
+
+    rows_info = []
+    for _, row in cohorts_df.iterrows():
+        signup_ym = engine._parse_ym(str(row[signup_col])) if signup_col else "?"
+        reason = None
+        if signup_ym >= analysis_month:
+            reason = "excluded (signup >= analysis_month)"
+        T = engine._months_elapsed(signup_ym, analysis_month) if reason is None else None
+        if T is not None and (T <= 0 or T > 96):
+            reason = f"excluded (T={T} out of range)"
+        cohort_size = None
+        cum_churn = None
+        survivors = None
+        if reason is None and size_col:
+            try:
+                cohort_size = float(row[size_col])
+            except Exception:
+                reason = "bad cohort_size"
+        if reason is None:
+            cum_churn = engine._get_cumulative_churn(row, T - 1)
+            survivors = max(0.0, cohort_size - cum_churn)
+            if survivors == 0:
+                reason = "survivors=0"
+        rows_info.append({
+            "signup_ym": signup_ym,
+            "T": T,
+            "cohort_size": cohort_size,
+            "cum_churn_at_T1": cum_churn,
+            "survivors": survivors,
+            "reason_excluded": reason,
+        })
+
+    contributing = [r for r in rows_info if r["reason_excluded"] is None]
+    excluded     = [r for r in rows_info if r["reason_excluded"] is not None]
+    return {
+        "analysis_month": analysis_month,
+        "total_cohorts": len(rows_info),
+        "contributing_cohorts": len(contributing),
+        "excluded_cohorts": len(excluded),
+        "total_survivors": round(sum(r["survivors"] for r in contributing), 2),
+        "signup_col": signup_col,
+        "size_col": size_col,
+        "contributing": contributing[:50],   # cap at 50 rows to keep response small
+        "excluded_sample": excluded[:20],
+    }
