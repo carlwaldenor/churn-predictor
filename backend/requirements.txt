@@ -4,3 +4,4 @@ pandas
 python-multipart
 numpy
 supabase
+requests

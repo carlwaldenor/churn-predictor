@@ -1,10 +1,12 @@
-from datetime import date
+import os
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import chartmogul_client
 import data_store
 import engine
 
@@ -49,6 +51,78 @@ async def upload_csv(
 @app.get("/api/csv-status")
 def csv_status():
     return data_store.get_status()
+
+
+# ---------------------------------------------------------------------------
+# ChartMogul sync
+# ---------------------------------------------------------------------------
+
+@app.post("/api/sync-chartmogul")
+def sync_chartmogul():
+    """
+    Fetch daily growth and historical churn data directly from the ChartMogul API
+    and store them in Supabase, replacing any previously uploaded files.
+
+    Requires the CHARTMOGUL_API_KEY environment variable to be set on the server.
+    Optionally reads CHARTMOGUL_MONTHLY_PLAN_IDS and CHARTMOGUL_ANNUAL_PLAN_IDS
+    (comma-separated UUIDs) to skip the auto-detection step.
+
+    Does NOT touch monthly_cohorts or annual_cohorts — those still require
+    a manual CSV upload from ChartMogul's UI.
+    """
+    api_key = os.environ.get("CHARTMOGUL_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="CHARTMOGUL_API_KEY is not set on the server. Add it as an environment variable in Render.",
+        )
+
+    try:
+        # Resolve plan UUIDs — prefer explicit env vars, fall back to auto-detect
+        monthly_env = os.environ.get("CHARTMOGUL_MONTHLY_PLAN_IDS", "").strip()
+        annual_env  = os.environ.get("CHARTMOGUL_ANNUAL_PLAN_IDS",  "").strip()
+
+        if monthly_env and annual_env:
+            monthly_uuids = [x.strip() for x in monthly_env.split(",") if x.strip()]
+            annual_uuids  = [x.strip() for x in annual_env.split(",")  if x.strip()]
+        else:
+            groups = chartmogul_client.fetch_plan_groups(api_key)
+            monthly_uuids = groups["monthly"]
+            annual_uuids  = groups["annual"]
+
+        # Date range: 3 years back for daily growth, 5 years back for churn rate
+        today      = date.today()
+        growth_start = (today - timedelta(days=365 * 3)).isoformat()
+        churn_start  = (today - timedelta(days=365 * 5)).isoformat()
+        end_date     = today.isoformat()
+
+        # Fetch from ChartMogul
+        monthly_growth = chartmogul_client.fetch_daily_growth(api_key, monthly_uuids, growth_start, end_date)
+        annual_growth  = chartmogul_client.fetch_daily_growth(api_key, annual_uuids,  growth_start, end_date)
+        churn_df       = chartmogul_client.fetch_historical_churn(api_key, churn_start, end_date)
+
+        # Persist via the same path as manual CSV upload
+        results = {}
+        for file_type, df in [
+            ("daily_growth_monthly", monthly_growth),
+            ("daily_growth_annual",  annual_growth),
+            ("historical_churn",     churn_df),
+        ]:
+            csv_bytes = df.to_csv(index=False).encode("utf-8")
+            row_count = data_store.save_csv(file_type, csv_bytes)
+            results[file_type] = row_count
+
+        return {
+            "success": True,
+            "synced_row_counts": results,
+            "monthly_plan_count": len(monthly_uuids),
+            "annual_plan_count":  len(annual_uuids),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
