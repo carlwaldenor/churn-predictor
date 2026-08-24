@@ -187,19 +187,29 @@ def fetch_churn_actuals_for_month(api_key: str, analysis_month: str) -> dict:
     else:
         end = f"{year}-{month + 1:02d}-01"
 
-    # Fetch page 1 only — the activities endpoint does not support reliable
-    # page-number pagination (repeated page=N returns the same results).
-    # For monthly churn counts the first page (200 entries) plus total_count
-    # from the response is the correct approach.
-    data = _get(api_key, "/activities", {
-        "start-date": start,
-        "end-date": end,
-        "type": "churn",
-        "per_page": 200,
-        "page": 1,
-    })
-    # Prefer total_count if the API returns it; otherwise fall back to entries length
-    count = int(data.get("total_count") or data.get("total") or len(data.get("entries", [])))
+    # The activities endpoint uses cursor-based pagination (has_more + cursor),
+    # not page numbers. Pass the cursor from each response as the next request's
+    # cursor parameter until has_more is false.
+    count = 0
+    cursor = None
+    while True:
+        params = {
+            "start-date": start,
+            "end-date": end,
+            "type": "churn",
+            "per_page": 200,
+        }
+        if cursor:
+            params["cursor"] = cursor
+
+        data = _get(api_key, "/activities", params)
+        count += len(data.get("entries", []))
+
+        if not data.get("has_more", False):
+            break
+        cursor = data.get("cursor")
+        if not cursor:
+            break
 
     return {"analysis_month": analysis_month, "voluntary_churn": count}
 
