@@ -1,0 +1,32 @@
+name: Capture Monthly Churn
+
+# Runs at 23:59 on days 28–31 of every month.
+# The endpoint itself checks whether today is actually the last day of the month
+# and skips silently if not — so running on days 28/29/30 when the month has
+# more days is harmless.
+on:
+  schedule:
+    - cron: '59 23 28-31 * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Pass force=true to capture even if today is not the last day of the month'
+        required: false
+        default: 'false'
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture this month's voluntary churn
+        run: |
+          FORCE="${{ github.event.inputs.force || 'false' }}"
+          RESPONSE=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST "${{ secrets.BACKEND_URL }}/api/capture-monthly-churn?force=${FORCE}" \
+            -H "Content-Type: application/json")
+          echo "HTTP status: $RESPONSE"
+          cat /tmp/response.json
+          if [ "$RESPONSE" != "200" ]; then
+            echo "Request failed with status $RESPONSE"
+            exit 1
+          fi

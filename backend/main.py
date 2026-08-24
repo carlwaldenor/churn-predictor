@@ -1,4 +1,5 @@
 import os
+from calendar import monthrange
 from datetime import date, timedelta
 from typing import Annotated
 
@@ -112,28 +113,11 @@ def sync_chartmogul():
             row_count = data_store.save_csv(file_type, csv_bytes)
             results[file_type] = row_count
 
-        # Sync churn actuals for the past 13 months (captures last full month + rolling window)
-        actuals_synced = 0
-        try:
-            months_to_sync = []
-            for i in range(1, 14):  # 1..13 months ago (skip current partial month)
-                d = today.replace(day=1) - timedelta(days=i * 28)
-                months_to_sync.append(f"{d.year}-{d.month:02d}")
-            months_to_sync = sorted(set(months_to_sync))
-
-            actuals = chartmogul_client.fetch_churn_actuals_bulk(api_key, months_to_sync)
-            for rec in actuals:
-                data_store.save_churn_actual(rec["analysis_month"], rec["voluntary_churn"])
-            actuals_synced = len(actuals)
-        except Exception:
-            pass  # don't fail the whole sync if actuals fetch errors
-
         return {
             "success": True,
             "synced_row_counts": results,
             "monthly_plan_count": len(monthly_uuids),
             "annual_plan_count":  len(annual_uuids),
-            "churn_actuals_synced": actuals_synced,
         }
 
     except HTTPException:
@@ -151,7 +135,7 @@ def churn_actual(analysis_month: str):
     """
     Return the stored voluntary churn count for a given month (YYYY-MM).
     Used by the Run Prediction tab to auto-fill the Reported Voluntary Churn field.
-    Returns {"found": false} if no data has been synced for that month yet.
+    Returns {"found": false} if nothing has been captured for that month yet.
     """
     rec = data_store.load_churn_actual(analysis_month)
     if rec is None:
@@ -162,6 +146,47 @@ def churn_actual(analysis_month: str):
         "voluntary_churn": rec["voluntary_churn"],
         "synced_at": rec["synced_at"],
     }
+
+
+@app.post("/api/capture-monthly-churn")
+def capture_monthly_churn(force: bool = False):
+    """
+    Fetch the current month's voluntary churn count from ChartMogul and store it.
+
+    Intended to be called by a scheduled job at 23:59 on the last day of each month.
+    Skips (returns {"skipped": true}) if today is not the last day of the month,
+    unless force=true is passed — use force to test or re-capture manually.
+
+    Requires CHARTMOGUL_API_KEY environment variable.
+    """
+    today = date.today()
+    last_day = monthrange(today.year, today.month)[1]
+
+    if today.day != last_day and not force:
+        return {
+            "skipped": True,
+            "reason": f"Today is {today} — not the last day of the month ({today.year}-{today.month:02d}-{last_day}). Pass ?force=true to capture anyway.",
+        }
+
+    api_key = os.environ.get("CHARTMOGUL_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="CHARTMOGUL_API_KEY is not set on the server.",
+        )
+
+    analysis_month = f"{today.year}-{today.month:02d}"
+
+    try:
+        rec = chartmogul_client.fetch_churn_actuals_for_month(api_key, analysis_month)
+        data_store.save_churn_actual(analysis_month, rec["voluntary_churn"])
+        return {
+            "success": True,
+            "analysis_month": analysis_month,
+            "voluntary_churn": rec["voluntary_churn"],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------------------
