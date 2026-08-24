@@ -199,8 +199,14 @@ def fetch_churn_actuals_for_month(api_key: str, analysis_month: str) -> dict:
         })
         entries = data.get("entries", [])
         count += len(entries)
-        total_pages = int(data.get("total_pages") or 1)
-        if page >= total_pages:
+        # Stop when we get fewer entries than the page size (last page),
+        # or when the API signals no more results via has_more/total_pages.
+        if len(entries) < 200:
+            break
+        if not data.get("has_more", True):
+            break
+        total_pages = data.get("total_pages")
+        if total_pages is not None and page >= int(total_pages):
             break
         page += 1
 
