@@ -193,7 +193,7 @@ def fetch_churn_actuals_for_month(api_key: str, analysis_month: str) -> dict:
         data = _get(api_key, "/activities", {
             "start-date": start,
             "end-date": end,
-            "type": "cancellation",
+            "type": "churn",
             "per_page": 200,
             "page": page,
         })
