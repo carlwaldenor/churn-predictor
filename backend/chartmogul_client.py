@@ -158,3 +158,64 @@ def fetch_historical_churn(
     if not rows:
         return pd.DataFrame(columns=["date", "customer_churn_rate"])
     return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
+# Monthly churn actuals (subscriber counts via activities)
+# ---------------------------------------------------------------------------
+
+def fetch_churn_actuals_for_month(api_key: str, analysis_month: str) -> dict:
+    """
+    Count voluntary cancellation activities for a single month (YYYY-MM).
+
+    Uses the /v1/activities endpoint, type=cancellation. Each entry represents
+    a customer whose subscription was cancelled in that month. Note: ChartMogul
+    records both voluntary cancellations and payment-failure churns as
+    'cancellation' events; if you need to separate them, filter by the activity's
+    cancellation_type field once the API response is inspected.
+
+    Returns:
+        {
+            "analysis_month": "YYYY-MM",
+            "voluntary_churn": <int>,   # count of cancellation events
+        }
+    """
+    year, month = map(int, analysis_month.split("-"))
+    start = f"{year}-{month:02d}-01"
+    if month == 12:
+        end = f"{year + 1}-01-01"
+    else:
+        end = f"{year}-{month + 1:02d}-01"
+
+    count = 0
+    page = 1
+    while True:
+        data = _get(api_key, "/activities", {
+            "start-date": start,
+            "end-date": end,
+            "type": "cancellation",
+            "per_page": 200,
+            "page": page,
+        })
+        entries = data.get("entries", [])
+        count += len(entries)
+        total_pages = int(data.get("total_pages") or 1)
+        if page >= total_pages:
+            break
+        page += 1
+
+    return {"analysis_month": analysis_month, "voluntary_churn": count}
+
+
+def fetch_churn_actuals_bulk(api_key: str, months: list) -> list:
+    """
+    Fetch churn actuals for a list of YYYY-MM strings.
+    Returns a list of dicts: [{analysis_month, voluntary_churn}, ...]
+    """
+    results = []
+    for m in months:
+        try:
+            results.append(fetch_churn_actuals_for_month(api_key, m))
+        except Exception:
+            pass  # skip months that fail; don't abort the whole bulk
+    return results

@@ -1,9 +1,21 @@
+import { useEffect, useRef, useState } from 'react'
+import axios from 'axios'
+
 const FILE_TYPE_KEYS = ['monthly_cohorts', 'annual_cohorts', 'daily_growth_monthly', 'daily_growth_annual']
 
-function InputField({ label, hint, type = 'text', value, onChange, placeholder }) {
+const YM_RE = /^\d{4}-\d{2}$/
+
+function InputField({ label, hint, type = 'text', value, onChange, placeholder, badge }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+      <div className="flex items-center gap-2 mb-1">
+        <label className="block text-sm font-medium text-gray-700">{label}</label>
+        {badge && (
+          <span className="text-xs bg-indigo-100 text-indigo-600 rounded px-1.5 py-0.5 font-medium">
+            {badge}
+          </span>
+        )}
+      </div>
       {hint && <p className="text-xs text-gray-400 mb-1.5">{hint}</p>}
       <input
         type={type}
@@ -19,7 +31,34 @@ function InputField({ label, hint, type = 'text', value, onChange, placeholder }
 export default function RunPrediction({ inputs, setInputs, onPredict, loading, error, csvStatus }) {
   const allLoaded = FILE_TYPE_KEYS.every((k) => csvStatus[k]?.exists)
 
-  const update = (key) => (val) => setInputs((prev) => ({ ...prev, [key]: val }))
+  // Track which month's voluntary churn was auto-filled so we can show the badge
+  const [autoFilledMonth, setAutoFilledMonth] = useState(null)
+  const lastFetchedMonth = useRef(null)
+
+  const update = (key) => (val) => {
+    setInputs((prev) => ({ ...prev, [key]: val }))
+    if (key === 'reported_voluntary_churn') {
+      // User manually changed the field — clear the auto-fill badge
+      setAutoFilledMonth(null)
+    }
+  }
+
+  // When analysis_month changes to a valid YYYY-MM, fetch the stored churn actual
+  useEffect(() => {
+    const month = inputs.analysis_month?.trim()
+    if (!month || !YM_RE.test(month) || month === lastFetchedMonth.current) return
+
+    lastFetchedMonth.current = month
+
+    axios.get(`/api/churn-actual/${month}`)
+      .then(({ data }) => {
+        if (data.found && month === lastFetchedMonth.current) {
+          setInputs((prev) => ({ ...prev, reported_voluntary_churn: String(data.voluntary_churn) }))
+          setAutoFilledMonth(month)
+        }
+      })
+      .catch(() => {}) // silent — field stays empty
+  }, [inputs.analysis_month]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div>
@@ -70,11 +109,12 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
           />
           <InputField
             label="Reported Voluntary Churn"
-            hint="Subset of total churn that was intentional cancellations"
+            hint="Intentional cancellations — auto-filled from ChartMogul when available"
             type="number"
             value={inputs.reported_voluntary_churn}
             onChange={update('reported_voluntary_churn')}
             placeholder="80"
+            badge={autoFilledMonth === inputs.analysis_month?.trim() ? 'ChartMogul' : null}
           />
           <InputField
             label="Dunning Duration (days)"

@@ -112,17 +112,56 @@ def sync_chartmogul():
             row_count = data_store.save_csv(file_type, csv_bytes)
             results[file_type] = row_count
 
+        # Sync churn actuals for the past 13 months (captures last full month + rolling window)
+        actuals_synced = 0
+        try:
+            months_to_sync = []
+            for i in range(1, 14):  # 1..13 months ago (skip current partial month)
+                d = today.replace(day=1) - timedelta(days=i * 28)
+                months_to_sync.append(f"{d.year}-{d.month:02d}")
+            months_to_sync = sorted(set(months_to_sync))
+
+            actuals = chartmogul_client.fetch_churn_actuals_bulk(api_key, months_to_sync)
+            for rec in actuals:
+                data_store.save_churn_actual(rec["analysis_month"], rec["voluntary_churn"])
+            actuals_synced = len(actuals)
+        except Exception:
+            pass  # don't fail the whole sync if actuals fetch errors
+
         return {
             "success": True,
             "synced_row_counts": results,
             "monthly_plan_count": len(monthly_uuids),
             "annual_plan_count":  len(annual_uuids),
+            "churn_actuals_synced": actuals_synced,
         }
 
     except HTTPException:
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Churn actuals lookup
+# ---------------------------------------------------------------------------
+
+@app.get("/api/churn-actual/{analysis_month}")
+def churn_actual(analysis_month: str):
+    """
+    Return the stored voluntary churn count for a given month (YYYY-MM).
+    Used by the Run Prediction tab to auto-fill the Reported Voluntary Churn field.
+    Returns {"found": false} if no data has been synced for that month yet.
+    """
+    rec = data_store.load_churn_actual(analysis_month)
+    if rec is None:
+        return {"found": False, "analysis_month": analysis_month}
+    return {
+        "found": True,
+        "analysis_month": analysis_month,
+        "voluntary_churn": rec["voluntary_churn"],
+        "synced_at": rec["synced_at"],
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -69,6 +69,27 @@ def load_predictions() -> list:
         return []
 
 
+def save_churn_actual(analysis_month: str, voluntary_churn: int) -> None:
+    """Upsert the voluntary churn count for a given month."""
+    _sb.table("cp_churn_actuals").upsert({
+        "analysis_month": analysis_month,
+        "voluntary_churn": voluntary_churn,
+        "synced_at": datetime.utcnow().isoformat(),
+    }).execute()
+
+
+def load_churn_actual(analysis_month: str) -> dict | None:
+    """Return the stored churn actual for a month, or None if not found."""
+    rows = (
+        _sb.table("cp_churn_actuals")
+        .select("analysis_month, voluntary_churn, synced_at")
+        .eq("analysis_month", analysis_month)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
+
+
 def get_status() -> dict:
     rows = _sb.table("cp_files").select("file_type, content").execute().data
     existing = {row["file_type"]: row["content"] for row in rows}
