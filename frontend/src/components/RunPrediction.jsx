@@ -6,6 +6,7 @@ const FILE_TYPE_KEYS = ['monthly_cohorts', 'annual_cohorts', 'daily_growth_month
 const YM_RE = /^\d{4}-\d{2}$/
 
 function InputField({ label, hint, type = 'text', value, onChange, placeholder, badge }) {
+  const autofilled = !!badge
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
@@ -22,7 +23,11 @@ function InputField({ label, hint, type = 'text', value, onChange, placeholder, 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition"
+        className={`w-full rounded-lg border px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition ${
+          autofilled
+            ? 'border-indigo-300 bg-indigo-50 text-indigo-900'
+            : 'border-gray-300 bg-white text-gray-900 placeholder-gray-400'
+        }`}
       />
     </div>
   )
