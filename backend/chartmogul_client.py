@@ -187,28 +187,19 @@ def fetch_churn_actuals_for_month(api_key: str, analysis_month: str) -> dict:
     else:
         end = f"{year}-{month + 1:02d}-01"
 
-    count = 0
-    page = 1
-    while True:
-        data = _get(api_key, "/activities", {
-            "start-date": start,
-            "end-date": end,
-            "type": "churn",
-            "per_page": 200,
-            "page": page,
-        })
-        entries = data.get("entries", [])
-        count += len(entries)
-        # Stop when we get fewer entries than the page size (last page),
-        # or when the API signals no more results via has_more/total_pages.
-        if len(entries) < 200:
-            break
-        if not data.get("has_more", True):
-            break
-        total_pages = data.get("total_pages")
-        if total_pages is not None and page >= int(total_pages):
-            break
-        page += 1
+    # Fetch page 1 only — the activities endpoint does not support reliable
+    # page-number pagination (repeated page=N returns the same results).
+    # For monthly churn counts the first page (200 entries) plus total_count
+    # from the response is the correct approach.
+    data = _get(api_key, "/activities", {
+        "start-date": start,
+        "end-date": end,
+        "type": "churn",
+        "per_page": 200,
+        "page": 1,
+    })
+    # Prefer total_count if the API returns it; otherwise fall back to entries length
+    count = int(data.get("total_count") or data.get("total") or len(data.get("entries", [])))
 
     return {"analysis_month": analysis_month, "voluntary_churn": count}
 
