@@ -148,6 +148,22 @@ def churn_actual(analysis_month: str):
     }
 
 
+@app.get("/api/debug-chartmogul-activities/{analysis_month}")
+def debug_chartmogul_activities(analysis_month: str):
+    """Return raw ChartMogul activities response metadata (no entries) for debugging pagination."""
+    api_key = os.environ.get("CHARTMOGUL_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="CHARTMOGUL_API_KEY not set")
+    year, month = map(int, analysis_month.split("-"))
+    start = f"{year}-{month:02d}-01"
+    end = f"{year + 1}-01-01" if month == 12 else f"{year}-{month + 1:02d}-01"
+    data = chartmogul_client._get(api_key, "/activities", {
+        "start-date": start, "end-date": end, "type": "churn", "per_page": 200, "page": 1,
+    })
+    # Return everything except the entries array itself
+    return {k: v for k, v in data.items() if k != "entries"} | {"entries_count_page1": len(data.get("entries", []))}
+
+
 @app.post("/api/capture-monthly-churn")
 def capture_monthly_churn(force: bool = False):
     """
