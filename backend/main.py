@@ -49,6 +49,12 @@ async def upload_csv(
 # CSV status
 # ---------------------------------------------------------------------------
 
+@app.get("/api/health")
+@app.head("/api/health")
+def health():
+    return {"ok": True}
+
+
 @app.get("/api/csv-status")
 def csv_status():
     return data_store.get_status()
