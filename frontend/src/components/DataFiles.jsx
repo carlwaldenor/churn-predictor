@@ -49,11 +49,19 @@ const SYNCED_KEYS = FILE_TYPES.filter(f => f.synced).map(f => f.key)
 
 function formatSyncTime(isoString) {
   if (!isoString) return null
-  const d = new Date(isoString + 'Z') // treat as UTC
-  return d.toLocaleString(undefined, {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  })
+  try {
+    // Python's isoformat() gives microseconds (6 decimal places); JS Date only
+    // handles milliseconds (3). Truncate and add Z to mark as UTC.
+    const normalized = isoString.replace(/(\.\d{3})\d*/, '$1') + 'Z'
+    const d = new Date(normalized)
+    if (isNaN(d.getTime())) return isoString
+    return d.toLocaleString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    })
+  } catch {
+    return isoString
+  }
 }
 
 function SyncPanel({ onSyncComplete }) {
@@ -100,34 +108,36 @@ function SyncPanel({ onSyncComplete }) {
           <p className="mt-1 text-xs text-indigo-500">
             Cohort files still require a manual CSV export from ChartMogul's UI.
           </p>
-          {lastSynced && (
-            <p className="mt-1.5 text-xs text-indigo-400">
-              Last synced: {formatSyncTime(lastSynced)}
-            </p>
-          )}
           {result && (
             <p className={`mt-2 text-xs font-medium ${result.ok ? 'text-green-700' : 'text-red-700'}`}>
               {result.ok ? '✓ ' : '✗ '}{result.message}
             </p>
           )}
         </div>
-        <button
-          onClick={handleSync}
-          disabled={syncing}
-          className="shrink-0 inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
-        >
-          {syncing ? (
-            <>
-              <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-              </svg>
-              Syncing…
-            </>
+        <div className="shrink-0 flex flex-col items-end gap-1.5">
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+          >
+            {syncing ? (
+              <>
+                <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                </svg>
+                Syncing…
+              </>
+            ) : (
+              'Sync Now'
+            )}
+          </button>
+          {lastSynced ? (
+            <p className="text-xs text-indigo-400">Last synced: {formatSyncTime(lastSynced)}</p>
           ) : (
-            'Sync Now'
+            <p className="text-xs text-indigo-300">Never synced</p>
           )}
-        </button>
+        </div>
       </div>
     </div>
   )
