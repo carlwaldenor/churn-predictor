@@ -69,6 +69,16 @@ def load_predictions() -> list:
         return []
 
 
+def save_meta(key: str, value: str) -> None:
+    """Store a scalar metadata value in cp_files under a reserved key."""
+    _sb.table("cp_files").upsert({"file_type": key, "content": value}).execute()
+
+
+def load_meta(key: str) -> str | None:
+    rows = _sb.table("cp_files").select("content").eq("file_type", key).execute().data
+    return rows[0]["content"] if rows else None
+
+
 def save_churn_actual(analysis_month: str, voluntary_churn: int) -> None:
     """Upsert the voluntary churn count for a given month."""
     _sb.table("cp_churn_actuals").upsert({

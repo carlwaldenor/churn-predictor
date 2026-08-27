@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import axios from 'axios'
 
 const FILE_TYPES = [
@@ -47,9 +47,25 @@ const SYNCED_KEYS = FILE_TYPES.filter(f => f.synced).map(f => f.key)
 // ChartMogul sync panel
 // ---------------------------------------------------------------------------
 
+function formatSyncTime(isoString) {
+  if (!isoString) return null
+  const d = new Date(isoString + 'Z') // treat as UTC
+  return d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
 function SyncPanel({ onSyncComplete }) {
   const [syncing, setSyncing] = useState(false)
   const [result, setResult]   = useState(null)  // { ok, message }
+  const [lastSynced, setLastSynced] = useState(null)
+
+  useEffect(() => {
+    axios.get('/api/sync-status')
+      .then(({ data }) => setLastSynced(data.last_synced_at))
+      .catch(() => {})
+  }, [])
 
   const handleSync = async () => {
     setSyncing(true)
@@ -61,6 +77,7 @@ function SyncPanel({ onSyncComplete }) {
         ([k, n]) => `${k.replace(/_/g, ' ')}: ${n.toLocaleString()} rows`
       )
       setResult({ ok: true, message: `Synced — ${lines.join(' · ')}` })
+      setLastSynced(new Date().toISOString())
       onSyncComplete()
     } catch (err) {
       const detail = err.response?.data?.detail || err.message || 'Sync failed'
@@ -83,6 +100,11 @@ function SyncPanel({ onSyncComplete }) {
           <p className="mt-1 text-xs text-indigo-500">
             Cohort files still require a manual CSV export from ChartMogul's UI.
           </p>
+          {lastSynced && (
+            <p className="mt-1.5 text-xs text-indigo-400">
+              Last synced: {formatSyncTime(lastSynced)}
+            </p>
+          )}
           {result && (
             <p className={`mt-2 text-xs font-medium ${result.ok ? 'text-green-700' : 'text-red-700'}`}>
               {result.ok ? '✓ ' : '✗ '}{result.message}

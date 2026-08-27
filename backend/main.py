@@ -119,6 +119,9 @@ def sync_chartmogul():
             row_count = data_store.save_csv(file_type, csv_bytes)
             results[file_type] = row_count
 
+        from datetime import datetime as _dt
+        data_store.save_meta("last_chartmogul_sync", _dt.utcnow().isoformat())
+
         return {
             "success": True,
             "synced_row_counts": results,
@@ -135,6 +138,13 @@ def sync_chartmogul():
 # ---------------------------------------------------------------------------
 # Churn actuals lookup
 # ---------------------------------------------------------------------------
+
+@app.get("/api/sync-status")
+def sync_status():
+    """Return the timestamp of the last successful ChartMogul sync."""
+    ts = data_store.load_meta("last_chartmogul_sync")
+    return {"last_synced_at": ts}
+
 
 @app.get("/api/churn-actual/{analysis_month}")
 def churn_actual(analysis_month: str):
