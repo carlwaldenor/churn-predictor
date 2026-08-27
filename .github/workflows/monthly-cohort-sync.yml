@@ -2,7 +2,13 @@ name: Monthly Cohort Sync
 
 # Runs on the 1st of every month at 04:00 UTC (after the daily sync at 03:00).
 # Also triggerable manually — useful for the initial population or a forced refresh.
-# Note: this job can take 2–5 minutes depending on how much history ChartMogul holds.
+#
+# Runs the Python script DIRECTLY in GitHub Actions instead of calling the
+# backend HTTP endpoint — this avoids the 10-minute HTTP timeout that was
+# hitting Render's proxy.  The Actions runner can run for up to 6 hours.
+#
+# Required secrets: CHARTMOGUL_API_KEY, SUPABASE_URL, SUPABASE_KEY
+# Optional secrets: CHARTMOGUL_MONTHLY_PLAN_IDS, CHARTMOGUL_ANNUAL_PLAN_IDS
 on:
   schedule:
     - cron: '0 4 1 * *'
@@ -11,17 +17,27 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     steps:
-      - name: Rebuild cohort CSVs from ChartMogul
-        run: |
-          RESPONSE=$(curl -s -o /tmp/response.json -w "%{http_code}" \
-            -X POST "${{ secrets.BACKEND_URL }}/api/sync-cohorts" \
-            -H "Content-Type: application/json" \
-            --max-time 600)
-          echo "HTTP status: $RESPONSE"
-          cat /tmp/response.json
-          if [ "$RESPONSE" != "200" ]; then
-            echo "Cohort sync failed with status $RESPONSE"
-            exit 1
-          fi
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Run cohort sync
+        working-directory: backend
+        env:
+          CHARTMOGUL_API_KEY: ${{ secrets.CHARTMOGUL_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          CHARTMOGUL_MONTHLY_PLAN_IDS: ${{ secrets.CHARTMOGUL_MONTHLY_PLAN_IDS }}
+          CHARTMOGUL_ANNUAL_PLAN_IDS: ${{ secrets.CHARTMOGUL_ANNUAL_PLAN_IDS }}
+        run: python sync_cohorts_script.py
