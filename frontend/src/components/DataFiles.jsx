@@ -5,14 +5,14 @@ const FILE_TYPES = [
   {
     key: 'monthly_cohorts',
     label: 'Monthly Cohorts',
-    description: 'Columns: signup_month (YYYY-MM), cohort_size, t1…tN (cumulative churn per month age)',
-    manual: true,
+    description: 'Rebuilt automatically from ChartMogul on the 1st of each month.',
+    synced: true,
   },
   {
     key: 'annual_cohorts',
     label: 'Annual Cohorts',
-    description: 'Columns: signup_month (YYYY-MM), cohort_size, t1…tN (cumulative churn per month age)',
-    manual: true,
+    description: 'Rebuilt automatically from ChartMogul on the 1st of each month.',
+    synced: true,
   },
   {
     key: 'daily_growth_monthly',

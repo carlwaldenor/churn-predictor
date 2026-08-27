@@ -164,6 +164,143 @@ def fetch_historical_churn(
 # Monthly churn actuals (subscriber counts via activities)
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Cohort reconstruction from activities
+# ---------------------------------------------------------------------------
+
+def _fetch_activities_all(api_key: str, activity_type: str, start_date: str, end_date: str) -> list:
+    """Cursor-paginated fetch for any activity type."""
+    entries = []
+    cursor = None
+    while True:
+        params = {
+            "start-date": start_date,
+            "end-date": end_date,
+            "type": activity_type,
+            "per_page": 200,
+        }
+        if cursor:
+            params["cursor"] = cursor
+        data = _get(api_key, "/activities", params)
+        entries.extend(data.get("entries", []))
+        if not data.get("has_more", False):
+            break
+        cursor = data.get("cursor")
+        if not cursor:
+            break
+    return entries
+
+
+def _customer_uuid(entry: dict) -> str:
+    """Extract customer UUID from an activity entry regardless of key format."""
+    return (entry.get("customer_uuid") or entry.get("customer-uuid")
+            or entry.get("customerUuid") or "")
+
+
+def _plan_uuid(entry: dict) -> str:
+    return (entry.get("plan_uuid") or entry.get("plan-uuid")
+            or entry.get("planUuid") or "")
+
+
+def _to_month(date_str: str) -> str:
+    """Return YYYY-MM from any date string, or ''."""
+    return date_str[:7] if date_str and len(date_str) >= 7 else ""
+
+
+def _months_diff(from_ym: str, to_ym: str) -> int:
+    fy, fm = int(from_ym[:4]), int(from_ym[5:7])
+    ty, tm = int(to_ym[:4]), int(to_ym[5:7])
+    return (ty - fy) * 12 + (tm - fm)
+
+
+def build_cohort_dataframes(
+    api_key: str,
+    monthly_uuids: list,
+    annual_uuids: list,
+    start_date: str,
+    end_date: str,
+) -> tuple:
+    """
+    Reconstruct monthly_cohorts and annual_cohorts DataFrames from ChartMogul
+    activities. Returns (monthly_df, annual_df).
+
+    Uses new_biz activities for signup month + plan type, churn activities for
+    churn age. Only the earliest new_biz per customer is used so reactivations
+    don't shift a customer's cohort assignment.
+
+    Output columns: signup_month, cohort_value, 0, 1, 2, ..., N
+    where each numbered column is cumulative churned subscribers at that age.
+    """
+    monthly_set = set(monthly_uuids)
+    annual_set = set(annual_uuids)
+
+    # 1. Build customer index from new_biz activities (sorted asc → keep earliest)
+    new_biz = sorted(
+        _fetch_activities_all(api_key, "new_biz", start_date, end_date),
+        key=lambda e: e.get("date", ""),
+    )
+    customer_info: dict = {}  # uuid → {signup_month, plan_type}
+    for entry in new_biz:
+        uuid = _customer_uuid(entry)
+        if not uuid or uuid in customer_info:
+            continue
+        pu = _plan_uuid(entry)
+        plan_type = "monthly" if pu in monthly_set else "annual" if pu in annual_set else "unknown"
+        month = _to_month(entry.get("date", ""))
+        if month:
+            customer_info[uuid] = {"signup_month": month, "plan_type": plan_type}
+
+    # 2. Initialise cohort size counts
+    monthly_cohorts: dict = {}  # signup_month → {size, churns: {age: count}}
+    annual_cohorts: dict = {}
+    for info in customer_info.values():
+        m = info["signup_month"]
+        target = (monthly_cohorts if info["plan_type"] == "monthly"
+                  else annual_cohorts if info["plan_type"] == "annual" else None)
+        if target is not None:
+            target.setdefault(m, {"size": 0, "churns": {}})["size"] += 1
+
+    # 3. Assign churn events to cohorts
+    churn_entries = _fetch_activities_all(api_key, "churn", start_date, end_date)
+    for entry in churn_entries:
+        uuid = _customer_uuid(entry)
+        churn_month = _to_month(entry.get("date", ""))
+        if not uuid or not churn_month:
+            continue
+        info = customer_info.get(uuid)
+        if not info:
+            continue
+        age = _months_diff(info["signup_month"], churn_month)
+        if age < 0 or age > 120:
+            continue
+        target = (monthly_cohorts if info["plan_type"] == "monthly"
+                  else annual_cohorts if info["plan_type"] == "annual" else None)
+        if target is None or info["signup_month"] not in target:
+            continue
+        c = target[info["signup_month"]]["churns"]
+        c[age] = c.get(age, 0) + 1
+
+    # 4. Build DataFrames with cumulative churn columns
+    def _make_df(cohorts: dict) -> pd.DataFrame:
+        if not cohorts:
+            return pd.DataFrame(columns=["signup_month", "cohort_value"] + [str(i) for i in range(95)])
+        max_age = min(94, max(
+            (max(c["churns"].keys(), default=0) for c in cohorts.values()), default=0
+        ))
+        rows = []
+        for signup_month in sorted(cohorts.keys()):
+            c = cohorts[signup_month]
+            row: dict = {"signup_month": signup_month, "cohort_value": c["size"]}
+            cumulative = 0
+            for age in range(max_age + 1):
+                cumulative += c["churns"].get(age, 0)
+                row[str(age)] = cumulative
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    return _make_df(monthly_cohorts), _make_df(annual_cohorts)
+
+
 def fetch_churn_actuals_for_month(api_key: str, analysis_month: str) -> dict:
     """
     Count voluntary cancellation activities for a single month (YYYY-MM).

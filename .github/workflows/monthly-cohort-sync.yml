@@ -1,0 +1,27 @@
+name: Monthly Cohort Sync
+
+# Runs on the 1st of every month at 04:00 UTC (after the daily sync at 03:00).
+# Also triggerable manually — useful for the initial population or a forced refresh.
+# Note: this job can take 2–5 minutes depending on how much history ChartMogul holds.
+on:
+  schedule:
+    - cron: '0 4 1 * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Rebuild cohort CSVs from ChartMogul
+        run: |
+          RESPONSE=$(curl -s -o /tmp/response.json -w "%{http_code}" \
+            -X POST "${{ secrets.BACKEND_URL }}/api/sync-cohorts" \
+            -H "Content-Type: application/json" \
+            --max-time 600)
+          echo "HTTP status: $RESPONSE"
+          cat /tmp/response.json
+          if [ "$RESPONSE" != "200" ]; then
+            echo "Cohort sync failed with status $RESPONSE"
+            exit 1
+          fi
