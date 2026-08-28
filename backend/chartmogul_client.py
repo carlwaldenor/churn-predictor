@@ -224,9 +224,13 @@ def build_cohort_dataframes(
     Reconstruct monthly_cohorts and annual_cohorts DataFrames from ChartMogul
     activities. Returns (monthly_df, annual_df).
 
-    Uses new_biz activities for signup month + plan type, churn activities for
-    churn age. Only the earliest new_biz per customer is used so reactivations
-    don't shift a customer's cohort assignment.
+    Each subscription period — whether it starts as new_biz or reactivation —
+    is treated as a separate cohort entry. This correctly captures reactivated
+    customers as renewal risks in the month they resubscribed.
+
+    A churn is matched to the most recent period start (new_biz or reactivation)
+    before that churn date for the same customer, so churns are attributed to the
+    right cohort even when a customer has subscribed multiple times.
 
     Output columns: signup_month, cohort_value, 0, 1, 2, ..., N
     where each numbered column is cumulative churned subscribers at that age.
@@ -234,50 +238,61 @@ def build_cohort_dataframes(
     monthly_set = set(monthly_uuids)
     annual_set = set(annual_uuids)
 
-    # 1. Build customer index from new_biz activities (sorted asc → keep earliest)
-    new_biz = sorted(
-        _fetch_activities_all(api_key, "new_biz", start_date, end_date),
+    # 1. Collect all period-start events (new_biz + reactivation), sorted by date
+    starts = sorted(
+        _fetch_activities_all(api_key, "new_biz", start_date, end_date) +
+        _fetch_activities_all(api_key, "reactivation", start_date, end_date),
         key=lambda e: e.get("date", ""),
     )
-    customer_info: dict = {}  # uuid → {signup_month, plan_type}
-    for entry in new_biz:
+
+    # periods: uuid → list of {start_month, plan_type}, sorted asc by start_month
+    periods: dict = {}
+    for entry in starts:
         uuid = _customer_uuid(entry)
-        if not uuid or uuid in customer_info:
+        month = _to_month(entry.get("date", ""))
+        if not uuid or not month:
             continue
         pu = _plan_uuid(entry)
         plan_type = "monthly" if pu in monthly_set else "annual" if pu in annual_set else "unknown"
-        month = _to_month(entry.get("date", ""))
-        if month:
-            customer_info[uuid] = {"signup_month": month, "plan_type": plan_type}
+        periods.setdefault(uuid, []).append({"start_month": month, "plan_type": plan_type})
 
-    # 2. Initialise cohort size counts
-    monthly_cohorts: dict = {}  # signup_month → {size, churns: {age: count}}
+    # 2. Initialise cohort size counts — one entry per subscription period
+    monthly_cohorts: dict = {}  # start_month → {size, churns: {age: count}}
     annual_cohorts: dict = {}
-    for info in customer_info.values():
-        m = info["signup_month"]
-        target = (monthly_cohorts if info["plan_type"] == "monthly"
-                  else annual_cohorts if info["plan_type"] == "annual" else None)
-        if target is not None:
-            target.setdefault(m, {"size": 0, "churns": {}})["size"] += 1
+    for plist in periods.values():
+        for p in plist:
+            target = (monthly_cohorts if p["plan_type"] == "monthly"
+                      else annual_cohorts if p["plan_type"] == "annual" else None)
+            if target is not None:
+                target.setdefault(p["start_month"], {"size": 0, "churns": {}})["size"] += 1
 
-    # 3. Assign churn events to cohorts
+    # 3. Assign each churn to the most recent period start before the churn date
     churn_entries = _fetch_activities_all(api_key, "churn", start_date, end_date)
     for entry in churn_entries:
         uuid = _customer_uuid(entry)
         churn_month = _to_month(entry.get("date", ""))
         if not uuid or not churn_month:
             continue
-        info = customer_info.get(uuid)
-        if not info:
+        plist = periods.get(uuid)
+        if not plist:
             continue
-        age = _months_diff(info["signup_month"], churn_month)
+        # Find the latest period that started on or before the churn month
+        active = None
+        for p in plist:
+            if p["start_month"] <= churn_month:
+                active = p
+            else:
+                break
+        if not active:
+            continue
+        age = _months_diff(active["start_month"], churn_month)
         if age < 0 or age > 120:
             continue
-        target = (monthly_cohorts if info["plan_type"] == "monthly"
-                  else annual_cohorts if info["plan_type"] == "annual" else None)
-        if target is None or info["signup_month"] not in target:
+        target = (monthly_cohorts if active["plan_type"] == "monthly"
+                  else annual_cohorts if active["plan_type"] == "annual" else None)
+        if target is None or active["start_month"] not in target:
             continue
-        c = target[info["signup_month"]]["churns"]
+        c = target[active["start_month"]]["churns"]
         c[age] = c.get(age, 0) + 1
 
     # 4. Build DataFrames with cumulative churn columns
