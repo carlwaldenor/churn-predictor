@@ -34,6 +34,18 @@ start_date = "2015-01-01"
 end_date   = date.today().isoformat()
 print(f"Fetching activities {start_date} → {end_date} (this may take several minutes)...")
 
+# Quick sanity check: fetch one page of new_biz for a recent month
+print("Debug: testing new_biz fetch for 2024-01...")
+test = chartmogul_client._fetch_activities_all(api_key, "new_biz", "2024-01-01", "2024-02-01")
+print(f"Debug: {len(test)} new_biz entries for 2024-01")
+if test:
+    sample = test[0]
+    print(f"Debug: sample entry keys: {list(sample.keys())}")
+    print(f"Debug: sample plan key: plan-uuid={sample.get('plan-uuid')}, plan_uuid={sample.get('plan_uuid')}")
+    print(f"Debug: sample customer key: customer-uuid={sample.get('customer-uuid')}, customer_uuid={sample.get('customer_uuid')}")
+else:
+    print("Debug: NO entries returned — possible API issue or wrong type name")
+
 monthly_df, annual_df = chartmogul_client.build_cohort_dataframes(
     api_key, monthly_uuids, annual_uuids, start_date, end_date
 )
