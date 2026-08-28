@@ -49,14 +49,18 @@ def _get(api_key: str, path: str, params: Optional[dict] = None) -> dict:
 
 def fetch_plan_groups(api_key: str) -> dict:
     """
-    Return plan UUIDs grouped as 'monthly' and 'annual' by inspecting
-    each plan's interval_unit and interval_count.
+    Return plan UUIDs and external IDs grouped as 'monthly' and 'annual'.
 
     Monthly  : interval_unit='month', interval_count=1
     Annual   : interval_unit='year'  OR  interval_unit='month', interval_count=12
+
+    Activities expose 'plan-external-id' (not 'plan-uuid'), so both sets
+    are returned so callers can match on whichever field is available.
     """
-    monthly: list[str] = []
-    annual: list[str] = []
+    monthly_uuids: list[str] = []
+    annual_uuids: list[str] = []
+    monthly_ext: list[str] = []
+    annual_ext: list[str] = []
 
     page = 1
     while True:
@@ -65,17 +69,27 @@ def fetch_plan_groups(api_key: str) -> dict:
             uuid = plan.get("uuid")
             if not uuid:
                 continue
+            ext_id = plan.get("external_id") or ""
             unit = plan.get("interval_unit", "")
             count = int(plan.get("interval_count") or 1)
             if unit == "month" and count == 1:
-                monthly.append(uuid)
+                monthly_uuids.append(uuid)
+                if ext_id:
+                    monthly_ext.append(ext_id)
             elif unit == "year" or (unit == "month" and count == 12):
-                annual.append(uuid)
+                annual_uuids.append(uuid)
+                if ext_id:
+                    annual_ext.append(ext_id)
         if page >= int(data.get("total_pages") or 1):
             break
         page += 1
 
-    return {"monthly": monthly, "annual": annual}
+    return {
+        "monthly": monthly_uuids,
+        "annual": annual_uuids,
+        "monthly_external_ids": monthly_ext,
+        "annual_external_ids": annual_ext,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +233,8 @@ def build_cohort_dataframes(
     annual_uuids: list,
     start_date: str,
     end_date: str,
+    monthly_external_ids: list = None,
+    annual_external_ids: list = None,
 ) -> tuple:
     """
     Reconstruct monthly_cohorts and annual_cohorts DataFrames from ChartMogul
@@ -237,6 +253,18 @@ def build_cohort_dataframes(
     """
     monthly_set = set(monthly_uuids)
     annual_set = set(annual_uuids)
+    monthly_ext_set = set(monthly_external_ids or [])
+    annual_ext_set = set(annual_external_ids or [])
+
+    def _classify_plan(entry: dict) -> str:
+        """Return 'monthly', 'annual', or 'unknown' for an activity entry."""
+        pu = _plan_uuid(entry)
+        pe = entry.get("plan-external-id") or entry.get("plan_external_id") or ""
+        if pu in monthly_set or pe in monthly_ext_set:
+            return "monthly"
+        if pu in annual_set or pe in annual_ext_set:
+            return "annual"
+        return "unknown"
 
     # 1. Collect all period-start events (new_biz + reactivation), sorted by date
     starts = sorted(
@@ -252,8 +280,7 @@ def build_cohort_dataframes(
         month = _to_month(entry.get("date", ""))
         if not uuid or not month:
             continue
-        pu = _plan_uuid(entry)
-        plan_type = "monthly" if pu in monthly_set else "annual" if pu in annual_set else "unknown"
+        plan_type = _classify_plan(entry)
         periods.setdefault(uuid, []).append({"start_month": month, "plan_type": plan_type})
 
     # 2. Initialise cohort size counts — one entry per subscription period

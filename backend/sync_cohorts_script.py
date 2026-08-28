@@ -19,16 +19,22 @@ if not api_key:
 monthly_env = os.environ.get("CHARTMOGUL_MONTHLY_PLAN_IDS", "").strip()
 annual_env  = os.environ.get("CHARTMOGUL_ANNUAL_PLAN_IDS",  "").strip()
 
+monthly_external_ids = []
+annual_external_ids  = []
+
 if monthly_env and annual_env:
     monthly_uuids = [x.strip() for x in monthly_env.split(",") if x.strip()]
     annual_uuids  = [x.strip() for x in annual_env.split(",")  if x.strip()]
 else:
     print("Auto-detecting plan groups from ChartMogul...")
     groups = chartmogul_client.fetch_plan_groups(api_key)
-    monthly_uuids = groups["monthly"]
-    annual_uuids  = groups["annual"]
+    monthly_uuids        = groups["monthly"]
+    annual_uuids         = groups["annual"]
+    monthly_external_ids = groups["monthly_external_ids"]
+    annual_external_ids  = groups["annual_external_ids"]
 
-print(f"Monthly plans: {len(monthly_uuids)}, Annual plans: {len(annual_uuids)}")
+print(f"Monthly plans: {len(monthly_uuids)} UUIDs + {len(monthly_external_ids)} ext IDs")
+print(f"Annual plans:  {len(annual_uuids)} UUIDs + {len(annual_external_ids)} ext IDs")
 
 start_date = "2015-01-01"
 end_date   = date.today().isoformat()
@@ -43,16 +49,20 @@ if test:
     print(f"Debug: sample entry keys: {list(sample.keys())}")
     print(f"Debug: plan-uuid={sample.get('plan-uuid')!r}  plan_uuid={sample.get('plan_uuid')!r}")
     print(f"Debug: customer-uuid={sample.get('customer-uuid')!r}  customer_uuid={sample.get('customer_uuid')!r}")
-    activity_plan = sample.get('plan-uuid') or sample.get('plan_uuid') or ''
-    in_monthly = activity_plan in set(monthly_uuids)
-    in_annual  = activity_plan in set(annual_uuids)
-    print(f"Debug: activity plan UUID in monthly set: {in_monthly}, in annual set: {in_annual}")
-    print(f"Debug: first monthly UUID from /plans: {monthly_uuids[0] if monthly_uuids else 'none'}")
+    act_uuid = sample.get('plan-uuid') or sample.get('plan_uuid') or ''
+    act_ext  = sample.get('plan-external-id') or ''
+    in_monthly = act_uuid in set(monthly_uuids) or act_ext in set(monthly_external_ids)
+    in_annual  = act_uuid in set(annual_uuids)  or act_ext in set(annual_external_ids)
+    print(f"Debug: plan-external-id={act_ext!r}")
+    print(f"Debug: matches monthly={in_monthly}, annual={in_annual}")
+    print(f"Debug: sample monthly ext ID: {monthly_external_ids[0] if monthly_external_ids else 'none'}")
 else:
     print("Debug: NO entries returned — possible API issue or wrong type name")
 
 monthly_df, annual_df = chartmogul_client.build_cohort_dataframes(
-    api_key, monthly_uuids, annual_uuids, start_date, end_date
+    api_key, monthly_uuids, annual_uuids, start_date, end_date,
+    monthly_external_ids=monthly_external_ids,
+    annual_external_ids=annual_external_ids,
 )
 
 print(f"Monthly cohorts: {len(monthly_df)} rows")

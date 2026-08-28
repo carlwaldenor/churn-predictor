@@ -179,19 +179,25 @@ def sync_cohorts():
     try:
         monthly_env = os.environ.get("CHARTMOGUL_MONTHLY_PLAN_IDS", "").strip()
         annual_env  = os.environ.get("CHARTMOGUL_ANNUAL_PLAN_IDS",  "").strip()
+        monthly_external_ids = []
+        annual_external_ids  = []
         if monthly_env and annual_env:
             monthly_uuids = [x.strip() for x in monthly_env.split(",") if x.strip()]
             annual_uuids  = [x.strip() for x in annual_env.split(",")  if x.strip()]
         else:
             groups = chartmogul_client.fetch_plan_groups(api_key)
-            monthly_uuids = groups["monthly"]
-            annual_uuids  = groups["annual"]
+            monthly_uuids        = groups["monthly"]
+            annual_uuids         = groups["annual"]
+            monthly_external_ids = groups["monthly_external_ids"]
+            annual_external_ids  = groups["annual_external_ids"]
 
         start_date = "2015-01-01"
         end_date   = date.today().isoformat()
 
         monthly_df, annual_df = chartmogul_client.build_cohort_dataframes(
-            api_key, monthly_uuids, annual_uuids, start_date, end_date
+            api_key, monthly_uuids, annual_uuids, start_date, end_date,
+            monthly_external_ids=monthly_external_ids,
+            annual_external_ids=annual_external_ids,
         )
 
         results = {}
