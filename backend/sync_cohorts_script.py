@@ -41,8 +41,13 @@ print(f"Debug: {len(test)} new_biz entries for 2024-01")
 if test:
     sample = test[0]
     print(f"Debug: sample entry keys: {list(sample.keys())}")
-    print(f"Debug: sample plan key: plan-uuid={sample.get('plan-uuid')}, plan_uuid={sample.get('plan_uuid')}")
-    print(f"Debug: sample customer key: customer-uuid={sample.get('customer-uuid')}, customer_uuid={sample.get('customer_uuid')}")
+    print(f"Debug: plan-uuid={sample.get('plan-uuid')!r}  plan_uuid={sample.get('plan_uuid')!r}")
+    print(f"Debug: customer-uuid={sample.get('customer-uuid')!r}  customer_uuid={sample.get('customer_uuid')!r}")
+    activity_plan = sample.get('plan-uuid') or sample.get('plan_uuid') or ''
+    in_monthly = activity_plan in set(monthly_uuids)
+    in_annual  = activity_plan in set(annual_uuids)
+    print(f"Debug: activity plan UUID in monthly set: {in_monthly}, in annual set: {in_annual}")
+    print(f"Debug: first monthly UUID from /plans: {monthly_uuids[0] if monthly_uuids else 'none'}")
 else:
     print("Debug: NO entries returned — possible API issue or wrong type name")
 

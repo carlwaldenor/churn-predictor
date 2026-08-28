@@ -40,4 +40,4 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           CHARTMOGUL_MONTHLY_PLAN_IDS: ${{ secrets.CHARTMOGUL_MONTHLY_PLAN_IDS }}
           CHARTMOGUL_ANNUAL_PLAN_IDS: ${{ secrets.CHARTMOGUL_ANNUAL_PLAN_IDS }}
-        run: python sync_cohorts_script.py
+        run: python -u sync_cohorts_script.py
