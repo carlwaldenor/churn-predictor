@@ -5,17 +5,25 @@ const FILE_TYPE_KEYS = ['monthly_cohorts', 'annual_cohorts', 'daily_growth_month
 
 const YM_RE = /^\d{4}-\d{2}$/
 
-function InputField({ label, hint, type = 'text', value, onChange, placeholder, badge }) {
+function InputField({ label, hint, type = 'text', value, onChange, placeholder, badge, loading }) {
   const autofilled = !!badge
   return (
     <div>
       <div className="flex items-center gap-2 mb-1">
         <label className="block text-sm font-medium text-gray-700">{label}</label>
-        {badge && (
+        {loading ? (
+          <span className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-400 rounded px-1.5 py-0.5">
+            <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+            </svg>
+            Loading…
+          </span>
+        ) : badge ? (
           <span className="text-xs bg-indigo-100 text-indigo-600 rounded px-1.5 py-0.5 font-medium">
             {badge}
           </span>
-        )}
+        ) : null}
       </div>
       {hint && <p className="text-xs text-gray-400 mb-1.5">{hint}</p>}
       <input
@@ -39,11 +47,13 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
   // Track which month's voluntary churn was auto-filled so we can show the badge
   const [autoFilledMonth, setAutoFilledMonth] = useState(null)
   const [voluntarySyncedAt, setVoluntarySyncedAt] = useState(null)
+  const [loadingVoluntary, setLoadingVoluntary] = useState(false)
   const lastFetchedMonth = useRef(null)
 
   // Track which month's defaults (opening_balance, total_churn, new_sales) were auto-filled
   const [autoFilledDefaultsMonth, setAutoFilledDefaultsMonth] = useState(null)
   const [defaultsFetchedAt, setDefaultsFetchedAt] = useState(null)
+  const [loadingDefaults, setLoadingDefaults] = useState(false)
   const lastFetchedDefaultsMonth = useRef(null)
 
   const DEFAULTS_FIELDS = ['opening_balance', 'reported_total_churn', 'new_sales']
@@ -78,16 +88,19 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
     if (!month || !YM_RE.test(month) || month === lastFetchedMonth.current) return
 
     lastFetchedMonth.current = month
+    setLoadingVoluntary(true)
 
     axios.get(`/api/churn-actual/${month}`)
       .then(({ data }) => {
-        if (data.found && month === lastFetchedMonth.current) {
+        if (month !== lastFetchedMonth.current) return
+        if (data.found) {
           setInputs((prev) => ({ ...prev, reported_voluntary_churn: String(data.voluntary_churn) }))
           setAutoFilledMonth(month)
           setVoluntarySyncedAt(data.synced_at || null)
         }
+        setLoadingVoluntary(false)
       })
-      .catch(() => {}) // silent — field stays empty
+      .catch(() => { if (month === lastFetchedMonth.current) setLoadingVoluntary(false) })
   }, [inputs.analysis_month]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // When analysis_month changes, also fetch opening balance, total churn, and new sales live
@@ -96,6 +109,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
     if (!month || !YM_RE.test(month) || month === lastFetchedDefaultsMonth.current) return
 
     lastFetchedDefaultsMonth.current = month
+    setLoadingDefaults(true)
 
     axios.get(`/api/month-defaults/${month}`)
       .then(({ data }) => {
@@ -108,8 +122,9 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
         }))
         setAutoFilledDefaultsMonth(month)
         setDefaultsFetchedAt(new Date().toISOString())
+        setLoadingDefaults(false)
       })
-      .catch(() => {}) // silent — fields stay empty if ChartMogul is unavailable
+      .catch(() => { if (month === lastFetchedDefaultsMonth.current) setLoadingDefaults(false) })
   }, [inputs.analysis_month]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -151,6 +166,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             onChange={update('opening_balance')}
             placeholder="10000"
             badge={defaultsBadge}
+            loading={loadingDefaults}
           />
           <InputField
             label="Reported Total Churn"
@@ -160,6 +176,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             onChange={update('reported_total_churn')}
             placeholder="250"
             badge={defaultsBadge}
+            loading={loadingDefaults}
           />
           <InputField
             label="Reported Voluntary Churn"
@@ -169,6 +186,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             onChange={update('reported_voluntary_churn')}
             placeholder="80"
             badge={voluntaryBadge}
+            loading={loadingVoluntary}
           />
           <InputField
             label="Dunning Duration (days)"
@@ -186,6 +204,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             onChange={update('new_sales')}
             placeholder="1500"
             badge={defaultsBadge}
+            loading={loadingDefaults}
           />
           <InputField
             label="Annual Risk Weight"
