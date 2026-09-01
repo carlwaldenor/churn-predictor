@@ -146,6 +146,21 @@ def sync_status():
     return {"last_synced_at": ts}
 
 
+@app.get("/api/month-defaults/{analysis_month}")
+def month_defaults(analysis_month: str):
+    """
+    Fetch opening_balance, reported_total_churn, and new_sales from ChartMogul
+    for the given month (YYYY-MM). Used by the frontend to auto-fill the prediction form.
+    """
+    api_key = os.environ.get("CHARTMOGUL_API_KEY", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=400, detail="CHARTMOGUL_API_KEY is not set")
+    try:
+        return chartmogul_client.fetch_month_defaults(api_key, analysis_month)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/api/churn-actual/{analysis_month}")
 def churn_actual(analysis_month: str):
     """

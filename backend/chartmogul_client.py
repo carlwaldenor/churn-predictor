@@ -405,6 +405,56 @@ def fetch_churn_actuals_for_month(api_key: str, analysis_month: str) -> dict:
     return {"analysis_month": analysis_month, "voluntary_churn": count}
 
 
+def fetch_month_defaults(api_key: str, analysis_month: str) -> dict:
+    """
+    Fetch all auto-fillable prediction inputs for a given month from ChartMogul.
+
+    Returns:
+        opening_balance       int   — active subscribers at start of the month
+        reported_total_churn  int   — churn activity count for the month
+        new_sales             int   — new_biz + reactivation activity count
+    """
+    year, month = map(int, analysis_month.split("-"))
+    start = f"{year}-{month:02d}-01"
+    if month == 12:
+        end = f"{year + 1}-01-01"
+    else:
+        end = f"{year}-{month + 1:02d}-01"
+
+    # Opening balance: customer count at end of the previous month
+    # (ChartMogul customer-count returns end-of-period count, so querying the
+    # previous month gives us the subscriber count at the start of this month.)
+    if month == 1:
+        prev_start = f"{year - 1}-12-01"
+    else:
+        prev_start = f"{year}-{month - 1:02d}-01"
+    customer_data = _get(api_key, "/metrics/customer-count", {
+        "start-date": prev_start,
+        "end-date": start,
+        "interval": "month",
+    })
+    opening_balance = None
+    entries = customer_data.get("entries", [])
+    if entries:
+        opening_balance = int(entries[-1].get("customers") or 0)
+
+    # Total churn count for the month
+    churn_result = fetch_churn_actuals_for_month(api_key, analysis_month)
+    total_churn = churn_result["voluntary_churn"]
+
+    # New sales: new_biz + reactivation activity counts
+    new_biz = _fetch_activities_all(api_key, "new_biz", start, end)
+    reactivations = _fetch_activities_all(api_key, "reactivation", start, end)
+    new_sales = len(new_biz) + len(reactivations)
+
+    return {
+        "analysis_month": analysis_month,
+        "opening_balance": opening_balance,
+        "reported_total_churn": total_churn,
+        "new_sales": new_sales,
+    }
+
+
 def fetch_churn_actuals_bulk(api_key: str, months: list) -> list:
     """
     Fetch churn actuals for a list of YYYY-MM strings.

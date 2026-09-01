@@ -40,11 +40,19 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
   const [autoFilledMonth, setAutoFilledMonth] = useState(null)
   const lastFetchedMonth = useRef(null)
 
+  // Track which month's defaults (opening_balance, total_churn, new_sales) were auto-filled
+  const [autoFilledDefaultsMonth, setAutoFilledDefaultsMonth] = useState(null)
+  const lastFetchedDefaultsMonth = useRef(null)
+
+  const DEFAULTS_FIELDS = ['opening_balance', 'reported_total_churn', 'new_sales']
+
   const update = (key) => (val) => {
     setInputs((prev) => ({ ...prev, [key]: val }))
     if (key === 'reported_voluntary_churn') {
-      // User manually changed the field — clear the auto-fill badge
       setAutoFilledMonth(null)
+    }
+    if (DEFAULTS_FIELDS.includes(key)) {
+      setAutoFilledDefaultsMonth(null)
     }
   }
 
@@ -63,6 +71,27 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
         }
       })
       .catch(() => {}) // silent — field stays empty
+  }, [inputs.analysis_month]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When analysis_month changes, also fetch opening balance, total churn, and new sales live
+  useEffect(() => {
+    const month = inputs.analysis_month?.trim()
+    if (!month || !YM_RE.test(month) || month === lastFetchedDefaultsMonth.current) return
+
+    lastFetchedDefaultsMonth.current = month
+
+    axios.get(`/api/month-defaults/${month}`)
+      .then(({ data }) => {
+        if (month !== lastFetchedDefaultsMonth.current) return
+        setInputs((prev) => ({
+          ...prev,
+          ...(data.opening_balance != null ? { opening_balance: String(data.opening_balance) } : {}),
+          ...(data.reported_total_churn != null ? { reported_total_churn: String(data.reported_total_churn) } : {}),
+          ...(data.new_sales != null ? { new_sales: String(data.new_sales) } : {}),
+        }))
+        setAutoFilledDefaultsMonth(month)
+      })
+      .catch(() => {}) // silent — fields stay empty if ChartMogul is unavailable
   }, [inputs.analysis_month]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
@@ -103,6 +132,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             value={inputs.opening_balance}
             onChange={update('opening_balance')}
             placeholder="10000"
+            badge={autoFilledDefaultsMonth === inputs.analysis_month?.trim() ? 'ChartMogul' : null}
           />
           <InputField
             label="Reported Total Churn"
@@ -111,6 +141,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             value={inputs.reported_total_churn}
             onChange={update('reported_total_churn')}
             placeholder="250"
+            badge={autoFilledDefaultsMonth === inputs.analysis_month?.trim() ? 'ChartMogul' : null}
           />
           <InputField
             label="Reported Voluntary Churn"
@@ -136,6 +167,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             value={inputs.new_sales}
             onChange={update('new_sales')}
             placeholder="1500"
+            badge={autoFilledDefaultsMonth === inputs.analysis_month?.trim() ? 'ChartMogul' : null}
           />
           <InputField
             label="Annual Risk Weight"
