@@ -38,23 +38,39 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
 
   // Track which month's voluntary churn was auto-filled so we can show the badge
   const [autoFilledMonth, setAutoFilledMonth] = useState(null)
+  const [voluntarySyncedAt, setVoluntarySyncedAt] = useState(null)
   const lastFetchedMonth = useRef(null)
 
   // Track which month's defaults (opening_balance, total_churn, new_sales) were auto-filled
   const [autoFilledDefaultsMonth, setAutoFilledDefaultsMonth] = useState(null)
+  const [defaultsFetchedAt, setDefaultsFetchedAt] = useState(null)
   const lastFetchedDefaultsMonth = useRef(null)
 
   const DEFAULTS_FIELDS = ['opening_balance', 'reported_total_churn', 'new_sales']
+
+  function fmtDate(isoString) {
+    if (!isoString) return null
+    const d = new Date(isoString)
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  }
 
   const update = (key) => (val) => {
     setInputs((prev) => ({ ...prev, [key]: val }))
     if (key === 'reported_voluntary_churn') {
       setAutoFilledMonth(null)
+      setVoluntarySyncedAt(null)
     }
     if (DEFAULTS_FIELDS.includes(key)) {
       setAutoFilledDefaultsMonth(null)
+      setDefaultsFetchedAt(null)
     }
   }
+
+  const currentMonth = inputs.analysis_month?.trim()
+  const voluntaryBadge = autoFilledMonth === currentMonth
+    ? `ChartMogul${voluntarySyncedAt ? ' · ' + fmtDate(voluntarySyncedAt) : ''}` : null
+  const defaultsBadge = autoFilledDefaultsMonth === currentMonth
+    ? `ChartMogul${defaultsFetchedAt ? ' · ' + fmtDate(defaultsFetchedAt) : ''}` : null
 
   // When analysis_month changes to a valid YYYY-MM, fetch the stored churn actual
   useEffect(() => {
@@ -68,6 +84,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
         if (data.found && month === lastFetchedMonth.current) {
           setInputs((prev) => ({ ...prev, reported_voluntary_churn: String(data.voluntary_churn) }))
           setAutoFilledMonth(month)
+          setVoluntarySyncedAt(data.synced_at || null)
         }
       })
       .catch(() => {}) // silent — field stays empty
@@ -90,6 +107,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
           ...(data.new_sales != null ? { new_sales: String(data.new_sales) } : {}),
         }))
         setAutoFilledDefaultsMonth(month)
+        setDefaultsFetchedAt(new Date().toISOString())
       })
       .catch(() => {}) // silent — fields stay empty if ChartMogul is unavailable
   }, [inputs.analysis_month]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -132,7 +150,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             value={inputs.opening_balance}
             onChange={update('opening_balance')}
             placeholder="10000"
-            badge={autoFilledDefaultsMonth === inputs.analysis_month?.trim() ? 'ChartMogul' : null}
+            badge={defaultsBadge}
           />
           <InputField
             label="Reported Total Churn"
@@ -141,7 +159,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             value={inputs.reported_total_churn}
             onChange={update('reported_total_churn')}
             placeholder="250"
-            badge={autoFilledDefaultsMonth === inputs.analysis_month?.trim() ? 'ChartMogul' : null}
+            badge={defaultsBadge}
           />
           <InputField
             label="Reported Voluntary Churn"
@@ -150,7 +168,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             value={inputs.reported_voluntary_churn}
             onChange={update('reported_voluntary_churn')}
             placeholder="80"
-            badge={autoFilledMonth === inputs.analysis_month?.trim() ? 'ChartMogul' : null}
+            badge={voluntaryBadge}
           />
           <InputField
             label="Dunning Duration (days)"
@@ -167,7 +185,7 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             value={inputs.new_sales}
             onChange={update('new_sales')}
             placeholder="1500"
-            badge={autoFilledDefaultsMonth === inputs.analysis_month?.trim() ? 'ChartMogul' : null}
+            badge={defaultsBadge}
           />
           <InputField
             label="Annual Risk Weight"
