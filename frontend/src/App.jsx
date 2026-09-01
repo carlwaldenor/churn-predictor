@@ -38,7 +38,7 @@ const DEFAULT_INPUTS = {
 function loadInputsFromStorage() {
   try {
     const raw = localStorage.getItem('churn_predictor_inputs')
-    if (raw) return { ...DEFAULT_INPUTS, ...JSON.parse(raw) }
+    if (raw) return { ...DEFAULT_INPUTS, ...JSON.parse(raw), current_date: getToday() }
   } catch {}
   return DEFAULT_INPUTS
 }
