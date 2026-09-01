@@ -9,6 +9,7 @@ Fetches the three files that can be automated:
 Cohort files still require a manual CSV upload from ChartMogul's UI.
 """
 
+import time
 from typing import Optional
 
 import pandas as pd
@@ -16,6 +17,7 @@ import requests
 
 _BASE = "https://api.chartmogul.com/v1"
 _TIMEOUT = 30  # seconds per request
+_RETRY_DELAYS = [10, 30, 90]  # seconds between retries on 5xx
 
 
 # ---------------------------------------------------------------------------
@@ -23,17 +25,27 @@ _TIMEOUT = 30  # seconds per request
 # ---------------------------------------------------------------------------
 
 def _get(api_key: str, path: str, params: Optional[dict] = None) -> dict:
-    """Authenticated GET against the ChartMogul v1 API."""
-    resp = requests.get(
-        f"{_BASE}{path}",
-        auth=(api_key, ""),
-        params=params or {},
-        timeout=_TIMEOUT,
-    )
+    """Authenticated GET against the ChartMogul v1 API, with retry on 5xx."""
+    url = f"{_BASE}{path}"
+    last_exc: Exception = RuntimeError("no attempts made")
+    for attempt, delay in enumerate([0] + _RETRY_DELAYS):
+        if delay:
+            print(f"ChartMogul 5xx — retrying in {delay}s (attempt {attempt + 1}/{len(_RETRY_DELAYS) + 1})...")
+            time.sleep(delay)
+        resp = requests.get(url, auth=(api_key, ""), params=params or {}, timeout=_TIMEOUT)
+        if resp.status_code < 500:
+            break
+        body = ""
+        try:
+            body = resp.json().get("message") or resp.text
+        except Exception:
+            body = resp.text
+        last_exc = RuntimeError(f"ChartMogul API error {resp.status_code}: {body}")
+    else:
+        raise last_exc
     try:
         resp.raise_for_status()
     except requests.HTTPError as exc:
-        # Surface the response body so the caller can show a useful error
         body = ""
         try:
             body = resp.json().get("message") or resp.text
