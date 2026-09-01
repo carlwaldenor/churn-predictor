@@ -170,12 +170,12 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             loading={loadingDefaults}
           />
           <InputField
-            label="Reported Total Churn"
-            hint="Total churned subscribers reported so far (from ChartMogul/Stripe)"
+            label="New Sales"
+            hint="Total new subscribers + reactivations for the analysis month (from ChartMogul unfiltered)"
             type="number"
-            value={inputs.reported_total_churn}
-            onChange={update('reported_total_churn')}
-            placeholder="250"
+            value={inputs.new_sales}
+            onChange={update('new_sales')}
+            placeholder="1500"
             badge={defaultsBadge}
             loading={loadingDefaults}
           />
@@ -190,12 +190,12 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             loading={loadingVoluntary}
           />
           <InputField
-            label="New Sales"
-            hint="Total new subscribers + reactivations for the analysis month (from ChartMogul unfiltered)"
+            label="Reported Total Churn"
+            hint="Total churned subscribers reported so far (from ChartMogul/Stripe)"
             type="number"
-            value={inputs.new_sales}
-            onChange={update('new_sales')}
-            placeholder="1500"
+            value={inputs.reported_total_churn}
+            onChange={update('reported_total_churn')}
+            placeholder="250"
             badge={defaultsBadge}
             loading={loadingDefaults}
           />
