@@ -410,10 +410,12 @@ def fetch_month_defaults(api_key: str, analysis_month: str) -> dict:
     Fetch all auto-fillable prediction inputs for a given month from ChartMogul.
 
     Returns:
-        opening_balance       int   — active subscribers at start of the month
+        opening_balance       int   — closing subscriber count of the previous month
         reported_total_churn  int   — churn activity count for the month
         new_sales             int   — new_biz + reactivation activity count
     """
+    from calendar import monthrange
+
     year, month = map(int, analysis_month.split("-"))
     start = f"{year}-{month:02d}-01"
     if month == 12:
@@ -421,16 +423,17 @@ def fetch_month_defaults(api_key: str, analysis_month: str) -> dict:
     else:
         end = f"{year}-{month + 1:02d}-01"
 
-    # Opening balance: customer count at end of the previous month
-    # (ChartMogul customer-count returns end-of-period count, so querying the
-    # previous month gives us the subscriber count at the start of this month.)
+    # Opening balance: closing subscriber count of the previous month
     if month == 1:
-        prev_start = f"{year - 1}-12-01"
+        prev_year, prev_month = year - 1, 12
     else:
-        prev_start = f"{year}-{month - 1:02d}-01"
+        prev_year, prev_month = year, month - 1
+    prev_last_day = monthrange(prev_year, prev_month)[1]
+    prev_start = f"{prev_year}-{prev_month:02d}-01"
+    prev_end   = f"{prev_year}-{prev_month:02d}-{prev_last_day:02d}"
     customer_data = _get(api_key, "/metrics/customer-count", {
         "start-date": prev_start,
-        "end-date": start,
+        "end-date": prev_end,
         "interval": "month",
     })
     opening_balance = None

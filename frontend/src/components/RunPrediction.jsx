@@ -8,7 +8,7 @@ const YM_RE = /^\d{4}-\d{2}$/
 function InputField({ label, hint, type = 'text', value, onChange, placeholder, badge, loading }) {
   const autofilled = !!badge
   return (
-    <div>
+    <div className="flex flex-col">
       <div className="flex items-center gap-2 mb-1">
         <label className="block text-sm font-medium text-gray-700">{label}</label>
         {loading ? (
@@ -31,7 +31,7 @@ function InputField({ label, hint, type = 'text', value, onChange, placeholder, 
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={`w-full rounded-lg border px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition ${
+        className={`mt-auto w-full rounded-lg border px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition ${
           autofilled
             ? 'border-indigo-300 bg-indigo-50 text-indigo-900'
             : 'border-gray-300 bg-white text-gray-900 placeholder-gray-400'
