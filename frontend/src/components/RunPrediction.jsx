@@ -43,6 +43,7 @@ function InputField({ label, hint, type = 'text', value, onChange, placeholder, 
 
 export default function RunPrediction({ inputs, setInputs, onPredict, loading, error, csvStatus }) {
   const allLoaded = FILE_TYPE_KEYS.every((k) => csvStatus[k]?.exists)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   // Track which month's voluntary churn was auto-filled so we can show the badge
   const [autoFilledMonth, setAutoFilledMonth] = useState(null)
@@ -189,14 +190,6 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             loading={loadingVoluntary}
           />
           <InputField
-            label="Dunning Duration (days)"
-            hint="Number of days your dunning process runs before a subscriber is marked churned"
-            type="number"
-            value={inputs.dunning_duration}
-            onChange={update('dunning_duration')}
-            placeholder="30"
-          />
-          <InputField
             label="New Sales"
             hint="Total new subscribers + reactivations for the analysis month (from ChartMogul unfiltered)"
             type="number"
@@ -206,14 +199,6 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
             badge={defaultsBadge}
             loading={loadingDefaults}
           />
-          <InputField
-            label="Annual Risk Weight"
-            hint="Multiplier for annual subscription failure rate relative to monthly (default 2.0)"
-            type="number"
-            value={inputs.annual_risk_weight}
-            onChange={update('annual_risk_weight')}
-            placeholder="2.0"
-          />
         </div>
 
         {error && (
@@ -222,11 +207,11 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
           </div>
         )}
 
-        <div className="mt-6">
+        <div className="mt-6 flex flex-wrap items-center gap-3">
           <button
             onClick={onPredict}
             disabled={loading || !allLoaded}
-            className={`w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold transition-colors ${
+            className={`inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-semibold transition-colors ${
               loading || !allLoaded
                 ? 'bg-indigo-300 text-white cursor-not-allowed'
                 : 'bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800'
@@ -244,7 +229,41 @@ export default function RunPrediction({ inputs, setInputs, onPredict, loading, e
               'Run Prediction'
             )}
           </button>
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((o) => !o)}
+            className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <svg
+              className={`h-4 w-4 transition-transform ${advancedOpen ? 'rotate-90' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+            Advanced settings
+          </button>
         </div>
+
+        {advancedOpen && (
+          <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 pt-5 border-t border-gray-100">
+            <InputField
+              label="Dunning Duration (days)"
+              hint="Number of days your dunning process runs before a subscriber is marked churned"
+              type="number"
+              value={inputs.dunning_duration}
+              onChange={update('dunning_duration')}
+              placeholder="30"
+            />
+            <InputField
+              label="Annual Risk Weight"
+              hint="Multiplier for annual subscription failure rate relative to monthly (default 2.0)"
+              type="number"
+              value={inputs.annual_risk_weight}
+              onChange={update('annual_risk_weight')}
+              placeholder="2.0"
+            />
+          </div>
+        )}
       </div>
     </div>
   )
